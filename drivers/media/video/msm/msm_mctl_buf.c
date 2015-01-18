@@ -35,9 +35,9 @@
 #define D(fmt, args...) do {} while (0)
 #endif
 
-// Start LGE_BSP_CAMERA::seongjo.kim@lge.com Control camera kernel log
+//                                                                    
 int logcount_nofreebuffer_available = 0;
-// End LGE_BSP_CAMERA::seongjo.kim@lge.com Control camera kernel log
+//                                                                  
 
 static int msm_vb2_ops_queue_setup(struct vb2_queue *vq,
 				const struct v4l2_format *fmt,
@@ -276,7 +276,7 @@ static void msm_vb2_ops_buf_cleanup(struct vb2_buffer *vb)
 		buf->state = MSM_BUFFER_STATE_UNUSED;
 		return;
 	}
-/* LGE_CHANGE_S, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+/*                                                                              */
 	if (!get_server_use_count() &&
 		pmctl && pmctl->hardware_running) {
 		pr_err("%s: daemon crashed but hardware is still running\n",
@@ -297,20 +297,13 @@ static void msm_vb2_ops_buf_cleanup(struct vb2_buffer *vb)
 		pr_err("server use count %d, pmctl pointer %p, hardware_running %d\n", get_server_use_count(),
 		pmctl, pmctl->hardware_running);
 	}
-/* LGE_CHANGE_E, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+/*                                                                              */
 	for (i = 0; i < vb->num_planes; i++) {
 		mem = vb2_plane_cookie(vb, i);
 		if (mem) {
-//End  LGE_BSP_CAMERA : Fixed WBT - jonghwan.ko@lge.com
-		videobuf2_pmem_contig_user_put(mem, pmctl->client,
-			pmctl->domain_num
-/* LGE_CHANGE_S, ion leakage patch, 2013.1.23, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-			, pcam_inst->is_closing
-#endif
-/* LGE_CHANGE_E, ion leakage patch, 2013.1.23, jungki.kim[End] */
-			);
-
+//                                                     
+			videobuf2_pmem_contig_user_put(mem, pmctl->client,
+				pmctl->domain_num);
 		} else {
 			pr_err("%s Inst %p buffer plane cookie is null",
 				__func__, pcam_inst);
@@ -549,11 +542,7 @@ int msm_mctl_buf_done(struct msm_cam_media_controller *p_mctl,
 			if (idx > MSM_DEV_INST_MAX) {
 				idx = GET_VIDEO_INST_IDX(
 					buf_handle->inst_handle);
-				if (idx > MSM_DEV_INST_MAX) {
-					pr_err("%s Invalid idx %d ", __func__,
-						idx);
-					return -EINVAL;
-				}
+				BUG_ON(idx > MSM_DEV_INST_MAX);
 				pcam_inst = p_mctl->pcam_ptr->dev_inst[idx];
 			} else {
 				pcam_inst = p_mctl->pcam_ptr->mctl_node.
@@ -685,10 +674,7 @@ struct msm_cam_v4l2_dev_inst *msm_mctl_get_pcam_inst(
 		idx = GET_MCTLPP_INST_IDX(buf_handle->inst_handle);
 		if (idx > MSM_DEV_INST_MAX) {
 			idx = GET_VIDEO_INST_IDX(buf_handle->inst_handle);
-			if (idx > MSM_DEV_INST_MAX) {
-				pr_err("%s Invalid idx %d ", __func__, idx);
-				return NULL;
-			}
+			BUG_ON(idx > MSM_DEV_INST_MAX);
 			pcam_inst = pcam->dev_inst[idx];
 		} else {
 			pcam_inst = pcam->mctl_node.dev_inst[idx];
@@ -728,16 +714,6 @@ int msm_mctl_reserve_free_buf(
 	 * camera instance, he would send the preferred camera instance.
 	 * If the preferred camera instance is NULL, get the
 	 * camera instance using the image mode passed */
-
-/* LGE_CHANGE_S, add messages to debug null, 2013.4.29, jungki.kim[Start] */
-#ifdef CONFIG_LGE_GK_CAMERA
-	if(!buf_handle->inst_handle){
-		pr_err("%s: buf_handle->inst_handle is 0\n", __func__);
-		return rc;
-	}
-#endif
-/* LGE_CHANGE_E, add messages to debug null, 2013.4.29, jungki.kim[End] */
-
 	if (!pcam_inst) {
 		pcam_inst = msm_mctl_get_pcam_inst(pmctl, buf_handle);
 		if(!pcam_inst) {
@@ -823,7 +799,7 @@ int msm_mctl_reserve_free_buf(
 		break;
 	}
 	if (rc != 0)
-	// Start LGE_BSP_CAMERA::seongjo.kim@lge.com Control camera kernel log
+	//                                                                    
 	{
 		logcount_nofreebuffer_available++;
 		if (logcount_nofreebuffer_available > 30)
@@ -833,7 +809,7 @@ int msm_mctl_reserve_free_buf(
 			logcount_nofreebuffer_available = 0;
 		}
 	}
-	// End LGE_BSP_CAMERA::seongjo.kim@lge.com Control camera kernel log
+	//                                                                  
 	spin_unlock_irqrestore(&pcam_inst->vq_irqlock, flags);
 	return rc;
 }
@@ -892,10 +868,7 @@ int msm_mctl_buf_done_pp(struct msm_cam_media_controller *pmctl,
 		idx = GET_MCTLPP_INST_IDX(buf_handle->inst_handle);
 		if (idx > MSM_DEV_INST_MAX) {
 			idx = GET_VIDEO_INST_IDX(buf_handle->inst_handle);
-			if (idx > MSM_DEV_INST_MAX) {
-				pr_err("%s Invalid idx %d ", __func__, idx);
-				return -EINVAL;
-			}
+			BUG_ON(idx > MSM_DEV_INST_MAX);
 			pcam_inst = pmctl->pcam_ptr->dev_inst[idx];
 		} else {
 			pcam_inst = pmctl->pcam_ptr->mctl_node.dev_inst[idx];

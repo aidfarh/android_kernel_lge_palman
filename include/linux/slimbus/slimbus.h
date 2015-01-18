@@ -143,15 +143,10 @@ struct slim_framer {
  * struct slim_addrt: slimbus address used internally by the slimbus framework.
  * @valid: If the device is still there or if the address can be reused.
  * @eaddr: 6-bytes-long elemental address
- * @laddr: It is possible that controller will set a predefined logical address
- *	rather than the one assigned by framework. (i.e. logical address may
- *	not be same as index into this table). This entry will store the
- *	logical address value for this enumeration address.
  */
 struct slim_addrt {
 	bool	valid;
 	u8	eaddr[6];
-	u8	laddr;
 };
 
 /*
@@ -484,8 +479,6 @@ enum slim_clk_state {
  * @m_ctrl: Mutex protecting controller data structures (ports, channels etc)
  * @addrt: Logical address table
  * @num_dev: Number of active slimbus slaves on this bus
- * @devs: List of devices on this controller
- * @wq: Workqueue per controller used to notify devices when they report present
  * @txnt: Table of transactions having transaction ID
  * @last_tid: size of the table txnt (can't grow beyond 256 since TID is 8-bits)
  * @ports: Ports associated with this controller
@@ -503,11 +496,6 @@ enum slim_clk_state {
  * @set_laddr: Setup logical address at laddr for the slave with elemental
  *	address e_addr. Drivers implementing controller will be expected to
  *	send unicast message to this device with its logical address.
- * @allocbw: Controller can override default reconfiguration and channel
- *	scheduling algorithm.
- * @get_laddr: It is possible that controller needs to set fixed logical
- *	address table and get_laddr can be used in that case so that controller
- *	can do this assignment.
  * @wakeup: This function pointer implements controller-specific procedure
  *	to wake it up from clock-pause. Framework will call this to bring
  *	the controller out of clock pause.
@@ -537,8 +525,6 @@ struct slim_controller {
 	struct mutex		m_ctrl;
 	struct slim_addrt	*addrt;
 	u8			num_dev;
-	struct list_head	devs;
-	struct workqueue_struct *wq;
 	struct slim_msg_txn	**txnt;
 	u8			last_tid;
 	struct slim_port	*ports;
@@ -552,10 +538,6 @@ struct slim_controller {
 				struct slim_msg_txn *txn);
 	int			(*set_laddr)(struct slim_controller *ctrl,
 				const u8 *ea, u8 elen, u8 laddr);
-	int			(*allocbw)(struct slim_device *sb,
-				int *subfrmc, int *clkgear);
-	int			(*get_laddr)(struct slim_controller *ctrl,
-				const u8 *ea, u8 elen, u8 *laddr);
 	int			(*wakeup)(struct slim_controller *ctrl);
 	int			(*config_port)(struct slim_controller *ctrl,
 				u8 port);
@@ -587,7 +569,6 @@ struct slim_driver {
 	int				(*suspend)(struct slim_device *sldev,
 					pm_message_t pmesg);
 	int				(*resume)(struct slim_device *sldev);
-	int				(*device_up)(struct slim_device *sldev);
 
 	struct device_driver		driver;
 	const struct slim_device_id	*id_table;
@@ -620,11 +601,6 @@ struct slim_pending_ch {
  *  @mark_define: List of channels pending definition/activation.
  *  @mark_suspend: List of channels pending suspend.
  *  @mark_removal: List of channels pending removal.
- *  @notified: Flag to indicate whether this device has been notified. The
- *	device may report present multiple times, but should be notified only
- *	first time it has reported present.
- *  @dev_list: List of devices on a controller
- *  @wd: Work structure associated with workqueue for presence notification
  *  @sldev_reconf: Mutex to protect the pending data-channel lists.
  *  @pending_msgsl: Message bandwidth reservation request by this client in
  *	slots that's pending reconfiguration.
@@ -643,9 +619,6 @@ struct slim_device {
 	struct list_head	mark_define;
 	struct list_head	mark_suspend;
 	struct list_head	mark_removal;
-	bool			notified;
-	struct list_head	dev_list;
-	struct work_struct	wd;
 	struct mutex		sldev_reconf;
 	u32			pending_msgsl;
 	u32			cur_msgsl;
@@ -993,17 +966,14 @@ extern void slim_remove_device(struct slim_device *sbdev);
  * @ctrl: Controller with which device is enumerated.
  * @e_addr: 6-byte elemental address of the device.
  * @e_len: buffer length for e_addr
- * @laddr: Return logical address (if valid flag is false)
- * @valid: true if laddr holds a valid address that controller wants to
- *	set for this enumeration address. Otherwise framework sets index into
- *	address table as logical address.
+ * @laddr: Return logical address.
  * Called by controller in response to REPORT_PRESENT. Framework will assign
  * a logical address to this enumeration address.
  * Function returns -EXFULL to indicate that all logical addresses are already
  * taken.
  */
 extern int slim_assign_laddr(struct slim_controller *ctrl, const u8 *e_addr,
-				u8 e_len, u8 *laddr, bool valid);
+				u8 e_len, u8 *laddr);
 
 /*
  * slim_msg_response: Deliver Message response received from a device to the

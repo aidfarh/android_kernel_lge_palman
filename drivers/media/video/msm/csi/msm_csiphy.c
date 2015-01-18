@@ -107,6 +107,8 @@ static irqreturn_t msm_csiphy_irq(int irq_num, void *data)
 	struct csiphy_device *csiphy_dev = data;
 	if(!csiphy_dev || !csiphy_dev->base)
 		return IRQ_HANDLED;
+	csiphy_dev->irq_count++;/*                                                                              */
+
 	for (i = 0; i < 8; i++) {
 		irq = msm_camera_io_r(
 			csiphy_dev->base +
@@ -114,8 +116,10 @@ static irqreturn_t msm_csiphy_irq(int irq_num, void *data)
 		msm_camera_io_w(irq,
 			csiphy_dev->base +
 			MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR + 0x4*i);
-		pr_err("%s MIPI_CSIPHY%d_INTERRUPT_STATUS%d = 0x%x\n",
-			 __func__, csiphy_dev->pdev->id, i, irq);
+		if(csiphy_dev->irq_count < 15){/*                                                                              */
+			pr_err("%s MIPI_CSIPHY%d_INTERRUPT_STATUS%d = 0x%x\n",
+				 __func__, csiphy_dev->pdev->id, i, irq);
+		}
 		msm_camera_io_w(0x1, csiphy_dev->base +
 			MIPI_CSIPHY_GLBL_IRQ_CMD_ADDR);
 		msm_camera_io_w(0x0, csiphy_dev->base +
@@ -132,6 +136,7 @@ static void msm_csiphy_reset(struct csiphy_device *csiphy_dev)
 	msm_camera_io_w(0x1, csiphy_dev->base + MIPI_CSIPHY_GLBL_RESET_ADDR);
 	usleep_range(5000, 8000);
 	msm_camera_io_w(0x0, csiphy_dev->base + MIPI_CSIPHY_GLBL_RESET_ADDR);
+	csiphy_dev->irq_count = 0;
 }
 
 static int msm_csiphy_subdev_g_chip_ident(struct v4l2_subdev *sd,
@@ -279,6 +284,7 @@ static int msm_csiphy_release(struct csiphy_device *csiphy_dev, void *arg)
 			ARRAY_SIZE(csiphy_8974_clk_info), 0);
 
 	iounmap(csiphy_dev->base);
+	csiphy_dev->irq_count = 0;
 	csiphy_dev->base = NULL;
 	csiphy_dev->csiphy_state = CSIPHY_POWER_DOWN;
 	return 0;

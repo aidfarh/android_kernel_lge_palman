@@ -43,11 +43,7 @@ static const unsigned int tacc_mant[] = {
 	0,	10,	12,	13,	15,	20,	25,	30,
 	35,	40,	45,	50,	55,	60,	70,	80,
 };
-#ifdef CONFIG_LGE_ENABEL_MMC_STRENGTH_CONTROL
 
-unsigned int clock_max;
-char clock_flag=0;
-#endif
 #define UNSTUFF_BITS(resp,start,size)					\
 	({								\
 		const int __size = size;				\
@@ -549,14 +545,7 @@ static int sd_set_bus_speed_mode(struct mmc_card *card, u8 *status)
 			mmc_hostname(card->host));
 	else {
 		mmc_set_timing(card->host, timing);
-#ifdef CONFIG_LGE_ENABEL_MMC_STRENGTH_CONTROL
-		 if(clock_flag)
-		 	mmc_set_clock(card->host, clock_max);
-		 else
-			mmc_set_clock(card->host, card->sw_caps.uhs_max_dtr);
-#else
 		mmc_set_clock(card->host, card->sw_caps.uhs_max_dtr);
-#endif
 	}
 
 	return 0;
@@ -889,9 +878,9 @@ int mmc_sd_setup_card(struct mmc_host *host, struct mmc_card *card,
 		int ro = -1;
 
 		if (host->ops->get_ro) {
-			mmc_host_clk_hold(host);
+			mmc_host_clk_hold(card->host);
 			ro = host->ops->get_ro(host);
-			mmc_host_clk_release(host);
+			mmc_host_clk_release(card->host);
 		}
 
 		if (ro < 0) {
@@ -1012,9 +1001,9 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		 * value registers for UHS-I cards.
 		 */
 		if (host->ops->enable_preset_value) {
-			mmc_host_clk_hold(host);
+			mmc_host_clk_hold(card->host);
 			host->ops->enable_preset_value(host, true);
-			mmc_host_clk_release(host);
+			mmc_host_clk_release(card->host);
 		}
 	} else {
 		/*
@@ -1029,14 +1018,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		/*
 		 * Set bus speed.
 		 */
-#ifdef CONFIG_LGE_ENABEL_MMC_STRENGTH_CONTROL
-		 if(clock_flag)
-		 	mmc_set_clock(host, clock_max);
-		 else
-			mmc_set_clock(host, mmc_sd_get_max_clock(card));
-#else
-	mmc_set_clock(host, mmc_sd_get_max_clock(card));
-#endif
+		mmc_set_clock(host, mmc_sd_get_max_clock(card));
 
 		/*
 		 * Switch to wider bus (if supported).

@@ -211,8 +211,10 @@ int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 	kgsl_event_func func, void *priv, void *owner)
 {
 	struct kgsl_event *event;
-	unsigned int queued = 0, cur_ts;
+	unsigned int cur_ts;
 	struct kgsl_context *context = NULL;
+	struct adreno_context *drawctxt;
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
@@ -223,23 +225,16 @@ int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 		context = kgsl_context_get(device, id);
 		if (context == NULL)
 			return -EINVAL;
-	}
-	/*
-	 * If the caller is creating their own timestamps, let them schedule
-	 * events in the future. Otherwise only allow timestamps that have been
-	 * queued.
-	 */
-	if (context == NULL ||
-		((context->flags & KGSL_CONTEXT_USER_GENERATED_TS) == 0)) {
-		queued = kgsl_readtimestamp(device, context,
-			KGSL_TIMESTAMP_QUEUED);
-
-		if (timestamp_cmp(ts, queued) > 0) {
+		/* Do not allow registering of event with invalid timestamp */
+		drawctxt = ADRENO_CONTEXT(context);
+		if (timestamp_cmp(ts, drawctxt->timestamp) > 0) {
 			kgsl_context_put(context);
 			return -EINVAL;
 		}
+	} else {
+		if (timestamp_cmp(ts, adreno_dev->ringbuffer.global_ts) > 0)
+			return -EINVAL;
 	}
-
 	cur_ts = kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED);
 
 	/*
@@ -338,11 +333,7 @@ void kgsl_cancel_event(struct kgsl_device *device, struct kgsl_context *context,
 		void *priv)
 {
 	struct kgsl_event *event;
-	struct list_head *head;
-
-	BUG_ON(!mutex_is_locked(&device->mutex));
-
-	head = _get_list_head(device, context);
+	struct list_head *head = _get_list_head(device, context);
 
 	event = _find_event(device, head, timestamp, func, priv);
 

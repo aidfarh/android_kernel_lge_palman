@@ -202,12 +202,9 @@ int mdp_mmap(struct v4l2_subdev *sd, void *arg)
 	if (inst->uses_iommu_split_domain) {
 		if (inst->secure)
 			use_iommu = false;
-		else {
-			use_iommu = true;
+		else
 			domain = DISPLAY_WRITE_DOMAIN;
-		}
 	} else {
-		use_iommu = true;
 		domain = DISPLAY_READ_DOMAIN;
 	}
 
@@ -230,7 +227,7 @@ int mdp_munmap(struct v4l2_subdev *sd, void *arg)
 {
 	struct mem_region_map *mmap = arg;
 	struct mem_region *mregion;
-	bool use_iommu = true;
+	bool use_iommu = false;
 	int domain = -1;
 	struct mdp_instance *inst = NULL;
 
@@ -245,12 +242,9 @@ int mdp_munmap(struct v4l2_subdev *sd, void *arg)
 	if (inst->uses_iommu_split_domain) {
 		if (inst->secure)
 			use_iommu = false;
-		else {
-			use_iommu = true;
+		else
 			domain = DISPLAY_WRITE_DOMAIN;
-		}
 	} else {
-		use_iommu = true;
 		domain = DISPLAY_READ_DOMAIN;
 	}
 

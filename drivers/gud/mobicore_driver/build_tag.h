@@ -1,5 +1,6 @@
-/*
- * <-- Copyright Trustonic Limited 2013 -->
+/**
+ *
+ * <!-- Copyright Giesecke & Devrient GmbH 2012-2012 -->
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,5 +26,4 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#define MOBICORE_COMPONENT_BUILD_TAG \
-		"*** GC_MSM8960_Release_V016 ###"
+#define MOBICORE_COMPONENT_BUILD_TAG "*** GC_MSM8960_Release_V010 ###"

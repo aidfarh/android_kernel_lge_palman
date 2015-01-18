@@ -393,6 +393,36 @@ void hci_le_start_enc(struct hci_conn *conn, __le16 ediv, __u8 rand[8],
 }
 EXPORT_SYMBOL(hci_le_start_enc);
 
+void hci_le_ltk_reply(struct hci_conn *conn, u8 ltk[16])
+{
+	struct hci_dev *hdev = conn->hdev;
+	struct hci_cp_le_ltk_reply cp;
+
+	BT_DBG("%p", conn);
+
+	memset(&cp, 0, sizeof(cp));
+
+	cp.handle = cpu_to_le16(conn->handle);
+	memcpy(cp.ltk, ltk, sizeof(ltk));
+
+	hci_send_cmd(hdev, HCI_OP_LE_LTK_REPLY, sizeof(cp), &cp);
+}
+EXPORT_SYMBOL(hci_le_ltk_reply);
+
+void hci_le_ltk_neg_reply(struct hci_conn *conn)
+{
+	struct hci_dev *hdev = conn->hdev;
+	struct hci_cp_le_ltk_neg_reply cp;
+
+	BT_DBG("%p", conn);
+
+	memset(&cp, 0, sizeof(cp));
+
+	cp.handle = cpu_to_le16(conn->handle);
+
+	hci_send_cmd(hdev, HCI_OP_LE_LTK_NEG_REPLY, sizeof(cp), &cp);
+}
+
 /* Device _must_ be locked */
 void hci_sco_setup(struct hci_conn *conn, __u8 status)
 {
@@ -854,14 +884,7 @@ struct hci_conn *hci_connect(struct hci_dev *hdev, int type,
 	if (acl->state == BT_CONNECTED &&
 			(sco->state == BT_OPEN || sco->state == BT_CLOSED)) {
 		acl->power_save = 1;
-// [S] LGE_BT: MOD/ilbeom.kim/'12-09-18 - [GK] Merged based on G project		
-// +s LGBT_COMMON_FUNCTION_NO_SNIFF_WHEN_OPEN_SCO - teddy.ju
-		hci_conn_enter_active_mode_no_timer(acl);
-/* Google Original
 		hci_conn_enter_active_mode(acl, 1);
-*/		
-// +e LGBT_COMMON_FUNCTION_NO_SNIFF_WHEN_OPEN_SCO - teddy.ju
-// [E] LGE_BT: MOD/ilbeom.kim/'12-09-18 - [GK] Merged based on G project
 
 		if (test_bit(HCI_CONN_MODE_CHANGE_PEND, &acl->pend)) {
 			/* defer SCO setup until mode change completed */
@@ -1054,16 +1077,6 @@ void hci_conn_enter_active_mode(struct hci_conn *conn, __u8 force_active)
 	}
 
 timer:
-// [S] LGE_BT: MOD/ilbeom.kim/'12-09-18 - [GK] Merged based on G project
-// +s LGBT_COMMON_FUNCTION_NO_SNIFF_WHEN_OPEN_SCO - teddy.ju
-	BT_DBG("sco_last_tx : %ld, sco_num : %d", hdev->sco_last_tx, hdev->conn_hash.sco_num);
-	if(hdev->conn_hash.sco_num && conn->mode!= HCI_CM_SNIFF){
-		BT_DBG("Don't need timer when open sco");
-		del_timer(&conn->idle_timer);
-		return;
-	}
-// +e LGBT_COMMON_FUNCTION_NO_SNIFF_WHEN_OPEN_SCO  - teddy.ju
-// [E] LGE_BT: MOD/ilbeom.kim/'12-09-18 - [GK] Merged based on G project
 	if (hdev->idle_timeout > 0) {
 		spin_lock_bh(&conn->lock);
 		if (conn->conn_valid) {
@@ -1074,29 +1087,6 @@ timer:
 		spin_unlock_bh(&conn->lock);
 	}
 }
-// [S] LGE_BT: MOD/ilbeom.kim/'12-09-18 - [GK] Merged based on G project
-// +s LGBT_COMMON_FUNCTION_NO_SNIFF_WHEN_OPEN_SCO - teddy.ju
-void hci_conn_enter_active_mode_no_timer(struct hci_conn *conn)
-{
-	struct hci_dev *hdev = conn->hdev;
-
-	BT_DBG("conn %p mode %d", conn, conn->mode);
-	BT_DBG("sco_last_tx : %ld, sco_num : %d", hdev->sco_last_tx, hdev->conn_hash.sco_num);
-
-	if (test_bit(HCI_RAW, &hdev->flags))
-		return;
-	else if (conn->mode != HCI_CM_SNIFF)
-		return;
-
-	if (!test_and_set_bit(HCI_CONN_MODE_CHANGE_PEND, &conn->pend)) {
-		struct hci_cp_exit_sniff_mode cp;		
-		cp.handle = cpu_to_le16(conn->handle);		
-		del_timer(&conn->idle_timer);
-		hci_send_cmd(hdev, HCI_OP_EXIT_SNIFF_MODE, sizeof(cp), &cp);
-	}
-}
-// +e LGBT_COMMON_FUNCTION_NO_SNIFF_WHEN_OPEN_SCO - teddy.ju
-// [E] LGE_BT: MOD/ilbeom.kim/'12-09-18 - [GK] Merged based on G project
 
 static inline void hci_conn_stop_rssi_timer(struct hci_conn *conn)
 {

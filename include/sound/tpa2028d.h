@@ -41,9 +41,8 @@ void set_amp_gain(int amp_no, int num);
 void set_amp_gain(int num);
 #endif
 
-#if defined( CONFIG_ANDROID_SW_IRRC) && defined(CONFIG_MACH_APQ8064_AWIFI)
+#ifdef CONFIG_ANDROID_IRRC
 void irrc_amp_off(int amp_no, int num);
-
 #endif
 
 struct audio_amp_platform_data {

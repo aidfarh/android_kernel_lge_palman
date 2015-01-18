@@ -43,7 +43,6 @@
 
 /* Filter-level status indicators */
 #define SDMX_FILTER_STATUS_EOS                    BIT(0)
-#define SDMX_FILTER_STATUS_WR_PTR_CHANGED         BIT(1)
 
 /* Filter-level flags */
 #define SDMX_FILTER_FLAG_VERIFY_SECTION_CRC	BIT(0)
@@ -52,8 +51,7 @@
 #define SDMX_INVALID_FILTER_HANDLE		(-1)
 
 /* Input flags */
-#define SDMX_INPUT_FLAG_EOS		BIT(0)
-#define SDMX_INPUT_FLAG_DBG_ENABLE	BIT(1)
+#define SDMX_INPUT_FLAG_EOS BIT(0)
 
 
 enum sdmx_buf_mode {
@@ -78,13 +76,6 @@ enum sdmx_pkt_format {
 	SDMX_195_BYTE_PKT = 195,
 };
 
-enum sdmx_log_level {
-	SDMX_LOG_NO_PRINT,
-	SDMX_LOG_MSG_ERROR,
-	SDMX_LOG_DEBUG,
-	SDMX_LOG_VERBOSE
-};
-
 enum sdmx_status {
 	SDMX_SUCCESS = 0,
 	SDMX_STATUS_GENERAL_FAILURE = -1,
@@ -100,9 +91,10 @@ enum sdmx_status {
 	SDMX_STATUS_SINGLE_PID_RAW_FILTER = -11,
 	SDMX_STATUS_INP_BUF_INVALID_PARAMS = -12,
 	SDMX_STATUS_INVALID_FILTER_CFG = -13,
-	SDMX_STATUS_STALLED_IN_PULL_MODE = -14,
-	SDMX_STATUS_SECURITY_FAULT = -15,
-	SDMX_STATUS_NS_BUFFER_ERROR = -16,
+	SDMX_STATUS_ILLEGAL_WR_PTR_CHANGE = -14,
+	SDMX_STATUS_STALLED_IN_PULL_MODE = -15,
+	SDMX_STATUS_SECURITY_FAULT = -16,
+	SDMX_STATUS_NS_BUFFER_ERROR = -17,
 };
 
 enum sdmx_filter {
@@ -185,7 +177,9 @@ struct sdmx_metadata_header {
 	/* Payload length */
 	u32 payload_length;
 
-	/* Number of meta data bytes immediately following this header */
+	/* Total metadata length (including this header, plus optional
+	 * additional metadata.
+	 */
 	u32 metadata_length;
 };
 
@@ -256,7 +250,5 @@ int sdmx_get_dbg_counters(int session_handle,
 	struct sdmx_filter_dbg_counters *filter_counters);
 
 int sdmx_reset_dbg_counters(int session_handle);
-
-int sdmx_set_log_level(int session_handle, enum sdmx_log_level level);
 
 #endif /* _MPQ_SDMX_H */

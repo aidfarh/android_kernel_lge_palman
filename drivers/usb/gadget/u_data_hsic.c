@@ -23,12 +23,7 @@
 #include <mach/usb_bridge.h>
 #include <mach/usb_gadget_xport.h>
 
-#if defined(CONFIG_USB_G_LGE_ANDROID) && defined(CONFIG_LGE_MSM_HSIC_TTY) || defined(CONFIG_MACH_APQ8064_AWIFI)
-/* Skip "dun_data_hsic0" */
-static unsigned int no_data_ports = 1;
-#else
 static unsigned int no_data_ports;
-#endif
 
 #define GHSIC_DATA_RMNET_RX_Q_SIZE		50
 #define GHSIC_DATA_RMNET_TX_Q_SIZE		300
@@ -134,10 +129,6 @@ static struct {
 static unsigned int get_timestamp(void);
 static void dbg_timestamp(char *, struct sk_buff *);
 static void ghsic_data_start_rx(struct gdata_port *port);
-
-#if defined(CONFIG_USB_G_LGE_ANDROID) && !defined(CONFIG_LGE_MSM_HSIC_TTY) && !defined(CONFIG_MACH_APQ8064_AWIFI)
-#include "u_atcmd.c"
-#endif
 
 static void ghsic_data_free_requests(struct usb_ep *ep, struct list_head *head)
 {
@@ -317,20 +308,6 @@ static void ghsic_data_write_tomdm(struct work_struct *w)
 	while ((skb = __skb_dequeue(&port->rx_skb_q))) {
 		pr_debug("%s: port:%p tom:%lu pno:%d\n", __func__,
 				port, port->to_modem, port->port_num);
-
-#if defined(CONFIG_USB_G_LGE_ANDROID) && !defined(CONFIG_LGE_MSM_HSIC_TTY) && !defined(CONFIG_MACH_APQ8064_AWIFI)
-        if (port->port_num == 0) /* modem */
-        {
-            spin_unlock_irqrestore(&port->rx_lock, flags);
-            if (atcmd_queue(skb->data, skb->len)) /* ATCMD_TO_AP */
-            {
-                spin_lock_irqsave(&port->rx_lock, flags);
-                dev_kfree_skb_any(skb);
-                continue;
-            }
-            spin_lock_irqsave(&port->rx_lock, flags);
-        }
-#endif
 
 		info = (struct timestamp_info *)skb->cb;
 		info->rx_done_sent = get_timestamp();
@@ -666,9 +643,6 @@ static int ghsic_data_remove(struct platform_device *pdev)
 	if (ep_out)
 		usb_ep_fifo_flush(ep_out);
 
-	/* cancel pending writes to MDM */
-	cancel_work_sync(&port->write_tomdm_w);
-
 	ghsic_data_free_buffers(port);
 
 	cancel_work_sync(&port->connect_w);
@@ -880,11 +854,6 @@ int ghsic_data_connect(void *gptr, int port_num)
 	spin_unlock_irqrestore(&port->rx_lock, flags);
 
 	queue_work(port->wq, &port->connect_w);
-
-#if defined(CONFIG_USB_G_LGE_ANDROID) && !defined(CONFIG_LGE_MSM_HSIC_TTY) && !defined(CONFIG_MACH_APQ8064_AWIFI)
-    if (port->port_num == 0)
-        atcmd_connect(port);
-#endif
 fail:
 	return ret;
 }

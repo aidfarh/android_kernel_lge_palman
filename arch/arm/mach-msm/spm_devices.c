@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,11 +33,9 @@ struct msm_spm_power_modes {
 };
 
 struct msm_spm_device {
-	bool initialized;
 	struct msm_spm_driver_data reg_data;
 	struct msm_spm_power_modes *modes;
 	uint32_t num_modes;
-	uint32_t cpu_vdd;
 };
 
 struct msm_spm_vdd_info {
@@ -56,9 +54,6 @@ static void msm_spm_smp_set_vdd(void *data)
 	struct msm_spm_vdd_info *info = (struct msm_spm_vdd_info *)data;
 
 	dev = &per_cpu(msm_cpu_spm_device, info->cpu);
-	if (!dev->initialized)
-		return;
-	dev->cpu_vdd = info->vlevel;
 	info->err = msm_spm_drv_set_vdd(&dev->reg_data, info->vlevel);
 }
 
@@ -70,7 +65,7 @@ int msm_spm_set_vdd(unsigned int cpu, unsigned int vlevel)
 	info.cpu = cpu;
 	info.vlevel = vlevel;
 
-	if ((smp_processor_id() != cpu) && cpu_online(cpu)) {
+	if (cpu_online(cpu)) {
 		/**
 		 * We do not want to set the voltage of another core from
 		 * this core, as its possible that we may race the vdd change
@@ -101,7 +96,7 @@ unsigned int msm_spm_get_vdd(unsigned int cpu)
 	struct msm_spm_device *dev;
 
 	dev = &per_cpu(msm_cpu_spm_device, cpu);
-	return dev->cpu_vdd;
+	return msm_spm_drv_get_sts_curr_pmic_data(&dev->reg_data);
 }
 EXPORT_SYMBOL(msm_spm_get_vdd);
 
@@ -111,9 +106,6 @@ static int msm_spm_dev_set_low_power_mode(struct msm_spm_device *dev,
 	uint32_t i;
 	uint32_t start_addr = 0;
 	int ret = -EINVAL;
-
-	if (!dev->initialized)
-		return -ENXIO;
 
 	if (mode == MSM_SPM_MODE_DISABLED) {
 		ret = msm_spm_drv_set_spm_enable(&dev->reg_data, false);
@@ -166,7 +158,6 @@ static int __devinit msm_spm_dev_init(struct msm_spm_device *dev,
 		dev->modes[i].notify_rpm = data->modes[i].notify_rpm;
 	}
 	msm_spm_drv_flush_seq_entry(&dev->reg_data);
-	dev->initialized = true;
 	return 0;
 
 spm_failed_init:
@@ -256,37 +247,21 @@ EXPORT_SYMBOL(msm_spm_l2_set_low_power_mode);
 
 void msm_spm_l2_reinit(void)
 {
-	if (!msm_spm_l2_device.initialized)
-		return;
 	msm_spm_drv_reinit(&msm_spm_l2_device.reg_data);
 }
 EXPORT_SYMBOL(msm_spm_l2_reinit);
 
 int msm_spm_apcs_set_vdd(unsigned int vlevel)
 {
-	if (!msm_spm_l2_device.initialized)
-		return -ENXIO;
 	return msm_spm_drv_set_vdd(&msm_spm_l2_device.reg_data, vlevel);
 }
 EXPORT_SYMBOL(msm_spm_apcs_set_vdd);
 
 int msm_spm_apcs_set_phase(unsigned int phase_cnt)
 {
-	if (!msm_spm_l2_device.initialized)
-		return -ENXIO;
-	return msm_spm_drv_set_pmic_data(&msm_spm_l2_device.reg_data,
-			MSM_SPM_PMIC_PHASE_PORT, phase_cnt);
+	return msm_spm_drv_set_phase(&msm_spm_l2_device.reg_data, phase_cnt);
 }
 EXPORT_SYMBOL(msm_spm_apcs_set_phase);
-
-int msm_spm_enable_fts_lpm(uint32_t mode)
-{
-	if (!msm_spm_l2_device.initialized)
-		return -ENXIO;
-	return msm_spm_drv_set_pmic_data(&msm_spm_l2_device.reg_data,
-			MSM_SPM_PMIC_PFM_PORT, mode);
-}
-EXPORT_SYMBOL(msm_spm_enable_fts_lpm);
 
 /* Board file init function */
 int __init msm_spm_l2_init(struct msm_spm_platform_data *data)
@@ -385,6 +360,25 @@ static int __devinit msm_spm_dev_probe(struct platform_device *pdev)
 	if (!ret)
 		spm_data.vctl_timeout_us = val;
 
+	/* optional */
+	key = "qcom,vctl-port";
+	ret = of_property_read_u32(node, key, &val);
+	if (!ret)
+		spm_data.vctl_port = val;
+
+	/* optional */
+	key = "qcom,phase-port";
+	ret = of_property_read_u32(node, key, &val);
+	if (!ret)
+		spm_data.phase_port = val;
+
+	for (i = 0; i < ARRAY_SIZE(spm_of_data); i++) {
+		ret = of_property_read_u32(node, spm_of_data[i].key, &val);
+		if (ret)
+			continue;
+		spm_data.reg_init_values[spm_of_data[i].id] = val;
+	}
+
 	/*
 	 * Device with id 0..NR_CPUS are SPM for apps cores
 	 * Device with id 0xFFFF is for L2 SPM.
@@ -398,35 +392,6 @@ static int __devinit msm_spm_dev_probe(struct platform_device *pdev)
 		mode_of_data = of_l2_modes;
 		num_modes = ARRAY_SIZE(of_l2_modes);
 		dev = &msm_spm_l2_device;
-	}
-
-	spm_data.vctl_port = -1;
-	spm_data.phase_port = -1;
-	spm_data.pfm_port = -1;
-
-	/* optional */
-	if (dev == &msm_spm_l2_device) {
-		key = "qcom,vctl-port";
-		ret = of_property_read_u32(node, key, &val);
-		if (!ret)
-			spm_data.vctl_port = val;
-
-		key = "qcom,phase-port";
-		ret = of_property_read_u32(node, key, &val);
-		if (!ret)
-			spm_data.phase_port = val;
-
-		key = "qcom,pfm-port";
-		ret = of_property_read_u32(node, key, &val);
-		if (!ret)
-			spm_data.pfm_port = val;
-	}
-
-	for (i = 0; i < ARRAY_SIZE(spm_of_data); i++) {
-		ret = of_property_read_u32(node, spm_of_data[i].key, &val);
-		if (ret)
-			continue;
-		spm_data.reg_init_values[spm_of_data[i].id] = val;
 	}
 
 	for (i = 0; i < num_modes; i++) {

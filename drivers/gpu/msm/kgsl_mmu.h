@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -148,12 +148,11 @@ struct kgsl_mmu_ops {
 	void (*mmu_pagefault_resume)
 			(struct kgsl_mmu *mmu);
 	void (*mmu_disable_clk_on_ts)
-		(struct kgsl_mmu *mmu,
-		uint32_t ts, int unit);
-	void (*mmu_enable_clk)
-		(struct kgsl_mmu *mmu, int unit);
+		(struct kgsl_mmu *mmu, uint32_t ts, bool ts_valid);
+	int (*mmu_enable_clk)
+		(struct kgsl_mmu *mmu, int ctx_id);
 	void (*mmu_disable_clk)
-		(struct kgsl_mmu *mmu, int unit);
+		(struct kgsl_mmu *mmu);
 	phys_addr_t (*mmu_get_default_ttbr0)(struct kgsl_mmu *mmu,
 				unsigned int unit_id,
 				enum kgsl_iommu_context_id ctx_id);
@@ -322,25 +321,26 @@ static inline phys_addr_t kgsl_mmu_get_default_ttbr0(struct kgsl_mmu *mmu,
 		return 0;
 }
 
-static inline void kgsl_mmu_enable_clk(struct kgsl_mmu *mmu, int unit)
+static inline int kgsl_mmu_enable_clk(struct kgsl_mmu *mmu,
+					int ctx_id)
 {
 	if (mmu->mmu_ops && mmu->mmu_ops->mmu_enable_clk)
-		mmu->mmu_ops->mmu_enable_clk(mmu, unit);
+		return mmu->mmu_ops->mmu_enable_clk(mmu, ctx_id);
 	else
-		return;
+		return 0;
 }
 
-static inline void kgsl_mmu_disable_clk(struct kgsl_mmu *mmu, int unit)
+static inline void kgsl_mmu_disable_clk(struct kgsl_mmu *mmu)
 {
 	if (mmu->mmu_ops && mmu->mmu_ops->mmu_disable_clk)
-		mmu->mmu_ops->mmu_disable_clk(mmu, unit);
+		mmu->mmu_ops->mmu_disable_clk(mmu);
 }
 
 static inline void kgsl_mmu_disable_clk_on_ts(struct kgsl_mmu *mmu,
-						unsigned int ts, int unit)
+						unsigned int ts, bool ts_valid)
 {
 	if (mmu->mmu_ops && mmu->mmu_ops->mmu_disable_clk_on_ts)
-		mmu->mmu_ops->mmu_disable_clk_on_ts(mmu, ts, unit);
+		mmu->mmu_ops->mmu_disable_clk_on_ts(mmu, ts, ts_valid);
 }
 
 static inline unsigned int kgsl_mmu_get_int_mask(void)

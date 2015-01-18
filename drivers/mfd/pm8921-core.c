@@ -25,11 +25,6 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/regulator.h>
 #include <linux/leds-pm8xxx.h>
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-#include <linux/io.h>
-#include <mach/msm_iomap.h>
-#include <mach/msm_smsm.h>
-#endif
 
 #define REG_HWREV		0x002  /* PMIC4 revision */
 #define REG_HWREV_2		0x0E8  /* PMIC4 revision 2 */
@@ -381,11 +376,7 @@ static struct mfd_cell ccadc_cell __devinitdata = {
 };
 
 static struct mfd_cell vibrator_cell __devinitdata = {
-#if defined(CONFIG_MACH_APQ8064_AWIFI) && defined(CONFIG_TSPDRV)
-	.name           = "tspdrv",
-#else
 	.name           = PM8XXX_VIBRATOR_DEV_NAME,
-#endif
 	.id             = -1,
 };
 
@@ -631,6 +622,18 @@ pm8921_add_subdevices(const struct pm8921_platform_data *pdata,
 		}
 	}
 
+	if (pdata->pwrkey_pdata) {
+		pwrkey_cell.platform_data = pdata->pwrkey_pdata;
+		pwrkey_cell.pdata_size =
+			sizeof(struct pm8xxx_pwrkey_platform_data);
+		ret = mfd_add_devices(pmic->dev, 0, &pwrkey_cell, 1, NULL,
+					irq_base);
+		if (ret) {
+			pr_err("Failed to add pwrkey subdevice ret=%d\n", ret);
+			goto bail;
+		}
+	}
+
 	if (pdata->mpp_pdata) {
 		if (version == PM8XXX_VERSION_8917) {
 			mpp_cell_resources[0].end = mpp_cell_resources[0].end
@@ -658,18 +661,6 @@ pm8921_add_subdevices(const struct pm8921_platform_data *pdata,
 				irq_base);
 		if (ret) {
 			pr_err("Failed to add rtc subdevice ret=%d\n", ret);
-			goto bail;
-		}
-	}
-
-	if (pdata->pwrkey_pdata) {
-		pwrkey_cell.platform_data = pdata->pwrkey_pdata;
-		pwrkey_cell.pdata_size =
-			sizeof(struct pm8xxx_pwrkey_platform_data);
-		ret = mfd_add_devices(pmic->dev, 0, &pwrkey_cell, 1, NULL,
-					irq_base);
-		if (ret) {
-			pr_err("Failed to add pwrkey subdevice ret=%d\n", ret);
 			goto bail;
 		}
 	}
@@ -813,8 +804,6 @@ pm8921_add_subdevices(const struct pm8921_platform_data *pdata,
 	}
 
 	if (pdata->ccadc_pdata) {
-		pdata->ccadc_pdata->ccadc_cdata.batt_temp_channel
-						= CHANNEL_BATT_THERM;
 		ccadc_cell.platform_data = pdata->ccadc_pdata;
 		ccadc_cell.pdata_size =
 				sizeof(struct pm8xxx_ccadc_platform_data);
@@ -857,53 +846,6 @@ static const char * const pm8917_rev_names[] = {
 	[PM8XXX_REVISION_8917_1p0]	= "1.0",
 };
 
-
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-/* restart reason */
-unsigned int pm8921_get_restart_reason(void)
-{
-	void *restart_reason_addr = MSM_IMEM_BASE + 0x065C;
-	unsigned int reason;
-
-	reason = __raw_readl(restart_reason_addr);
-	//pr_info("smem reatart_reason=0x%x\n", reason);
-	return reason;
-}
-
-/* pm watch dog status */
-unsigned int pm8921_get_watch_dog_status(void)
-{
-	unsigned int smem_size;
-	unsigned int *power_on_status;
-
-	power_on_status = smem_get_entry(SMEM_POWER_ON_STATUS_INFO, &smem_size);
-	if(smem_size==0 || !power_on_status)
-	{
-		return -EFAULT;
-	}
-
-	/* upper 8bit is pmic_dog_reset state form SBL3. */
-	//pr_info("smem pm_power_on_reason=0x%x, dog_status=%d\n", (0xff & *power_on_status), !!(0xff00 & *power_on_status));
-	return *power_on_status;
-}
-
-/* sbl1 battery weak status */
-unsigned int pm8921_get_battery_weak_status(void)
-{
-	unsigned int smem_size;
-	unsigned int *batt_weak;
-
-	batt_weak = smem_get_entry(SMEM_ID_VENDOR2, &smem_size);
-	if(smem_size==0 || !batt_weak)
-	{
-		return -EFAULT;
-	}
-
-	//pr_info("smem battery_threshold=%d, weak=%d\n", (0xffff & *batt_weak), !!(0xffff0000 & *batt_weak));
-	return *batt_weak;
-}
-#endif
-
 static int __devinit pm8921_probe(struct platform_device *pdev)
 {
 	const struct pm8921_platform_data *pdata = pdev->dev.platform_data;
@@ -913,9 +855,6 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 	int revision;
 	int rc;
 	u8 val;
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-	unsigned int temp;
-#endif
 
 	if (!pdata) {
 		pr_err("missing platform data\n");
@@ -981,16 +920,6 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 	val &= PM8XXX_RESTART_REASON_MASK;
 	pr_info("PMIC Restart Reason: %s\n", pm8xxx_restart_reason_str[val]);
 	pmic->restart_reason = val;
-
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-	/* additional infomation */
-	temp = pm8921_get_restart_reason();
-	pr_info("smem restart reason: 0x%x\n", temp);
-	temp = pm8921_get_watch_dog_status();
-	pr_info("smem pm_power_on_reason=0x%x, dog_status=%d\n", (0xff & temp), !!(0xff00 & temp));
-	temp = pm8921_get_battery_weak_status();
-	pr_info("smem battery_threshold=%d, weak=%d\n", (0xffff & temp), !!(0xffff0000 & temp));
-#endif
 
 	rc = pm8921_add_subdevices(pdata, pmic);
 	if (rc) {

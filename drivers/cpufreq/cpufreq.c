@@ -32,10 +32,6 @@
 
 #include <trace/events/power.h>
 
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-#include <mach/board_lge.h>
-#endif
-
 /**
  * The "cpufreq driver" - the arch- or hardware-dependent low
  * level driver of CPUFreq support, and its spinlock. This lock
@@ -791,8 +787,6 @@ static int cpufreq_add_dev_policy(unsigned int cpu,
 
 			spin_lock_irqsave(&cpufreq_driver_lock, flags);
 			cpumask_copy(managed_policy->cpus, policy->cpus);
-			cpumask_and(managed_policy->cpus,
-					managed_policy->cpus, cpu_online_mask);
 			per_cpu(cpufreq_cpu_data, cpu) = managed_policy;
 			spin_unlock_irqrestore(&cpufreq_driver_lock, flags);
 
@@ -935,9 +929,6 @@ err_out_kobj_put:
  * with with cpu hotplugging and all hell will break loose. Tried to clean this
  * mess up, but more thorough testing is needed. - Mathieu
  */
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-extern struct cpufreq_governor cpufreq_gov_powersave;
-#endif
 static int cpufreq_add_dev(struct device *dev, struct subsys_interface *sif)
 {
 	unsigned int cpu = dev->id;
@@ -1005,14 +996,6 @@ static int cpufreq_add_dev(struct device *dev, struct subsys_interface *sif)
 #endif
 	if (!found)
 		policy->governor = CPUFREQ_DEFAULT_GOVERNOR;
-
-#ifdef CONFIG_LGE_PM_LOW_BATT_CHG
-	if (!found && lge_get_charger_logo_state()) {
-		policy->governor = &cpufreq_gov_powersave;
-		pr_info("During chargerlogo, cpu %d governor=gov_powersave\n", cpu);
-	}
-#endif
-
 	/* call driver. From then on the cpufreq must be able
 	 * to accept all calls to ->verify and ->setpolicy for this CPU
 	 */

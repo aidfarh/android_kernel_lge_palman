@@ -25,27 +25,6 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/cn_proc.h>
 
-#ifdef CONFIG_CCSECURITY
-static inline bool anti_ptrace_uid(const struct task_struct *task,
-				   const char *funcname)
-{
-	if (!ccsecurity_ops.disabled) {
-		const uid_t uid = task_uid(task);
-		switch (uid) {
-		case 4505:
-		case 4510:
-			return true;
-		}
-	}
-	return false;
-}
-#else
-static inline bool anti_ptrace_uid(const struct task_struct *task,
-				   const char *funcname)
-{
-	return false;
-}
-#endif
 
 static int ptrace_trapping_sleep_fn(void *flags)
 {
@@ -146,35 +125,35 @@ void __ptrace_unlink(struct task_struct *child)
 /* Ensure that nothing can wake it up, even SIGKILL */
 static bool ptrace_freeze_traced(struct task_struct *task)
 {
-  bool ret = false;
+	bool ret = false;
 
-  /* Lockless, nobody but us can set this flag */
-  if (task->jobctl & JOBCTL_LISTENING)
-    return ret;
+	/* Lockless, nobody but us can set this flag */
+	if (task->jobctl & JOBCTL_LISTENING)
+		return ret;
 
-  spin_lock_irq(&task->sighand->siglock);
-  if (task_is_traced(task) && !__fatal_signal_pending(task)) {
-    task->state = __TASK_TRACED;
-    ret = true;
-  }
-  spin_unlock_irq(&task->sighand->siglock);
+	spin_lock_irq(&task->sighand->siglock);
+	if (task_is_traced(task) && !__fatal_signal_pending(task)) {
+		task->state = __TASK_TRACED;
+		ret = true;
+	}
+	spin_unlock_irq(&task->sighand->siglock);
 
-  return ret;
+	return ret;
 }
 
 static void ptrace_unfreeze_traced(struct task_struct *task)
 {
-  if (task->state != __TASK_TRACED)
-    return;
+	if (task->state != __TASK_TRACED)
+		return;
 
-  WARN_ON(!task->ptrace || task->parent != current);
+	WARN_ON(!task->ptrace || task->parent != current);
 
-  spin_lock_irq(&task->sighand->siglock);
-  if (__fatal_signal_pending(task))
-    wake_up_state(task, __TASK_TRACED);
-  else
-    task->state = TASK_TRACED;
-  spin_unlock_irq(&task->sighand->siglock);
+	spin_lock_irq(&task->sighand->siglock);
+	if (__fatal_signal_pending(task))
+		wake_up_state(task, __TASK_TRACED);
+	else
+		task->state = TASK_TRACED;
+	spin_unlock_irq(&task->sighand->siglock);
 }
 
 /**
@@ -219,13 +198,13 @@ int ptrace_check_attach(struct task_struct *child, bool ignore_state)
 
 	if (!ret && !ignore_state) {
 		if (!wait_task_inactive(child, __TASK_TRACED)) {
-		/*
-		 * This can only happen if may_ptrace_stop() fails and
-		 * ptrace_stop() changes ->state back to TASK_RUNNING,
-		 * so we should not worry about leaking __TASK_TRACED.
-		 */
-		WARN_ON(child->state == __TASK_TRACED);
-		ret = -ESRCH;
+			/*
+			 * This can only happen if may_ptrace_stop() fails and
+			 * ptrace_stop() changes ->state back to TASK_RUNNING,
+			 * so we should not worry about leaking __TASK_TRACED.
+			 */
+			WARN_ON(child->state == __TASK_TRACED);
+			ret = -ESRCH;
 		}
 	}
 
@@ -920,11 +899,6 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 {
 	struct task_struct *child;
 	long ret;
-	{
-		const int rc = ccs_ptrace_permission(request, pid);
-		if (rc)
-			return rc;
-	}
 
 	if (request == PTRACE_TRACEME) {
 		ret = ptrace_traceme();
@@ -939,11 +913,6 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 		goto out;
 	}
 
-	if ((request != PTRACE_DETACH) && anti_ptrace_uid(child, __func__)) {
-		ret = -EPERM;
-		goto out_put_task_struct;
-	}
-	
 	if (request == PTRACE_ATTACH || request == PTRACE_SEIZE) {
 		ret = ptrace_attach(child, request, addr, data);
 		/*
@@ -1077,11 +1046,6 @@ asmlinkage long compat_sys_ptrace(compat_long_t request, compat_long_t pid,
 {
 	struct task_struct *child;
 	long ret;
-	{
-		const int rc = ccs_ptrace_permission(request, pid);
-		if (rc)
-			return rc;
-	}
 
 	if (request == PTRACE_TRACEME) {
 		ret = ptrace_traceme();
@@ -1094,11 +1058,6 @@ asmlinkage long compat_sys_ptrace(compat_long_t request, compat_long_t pid,
 		goto out;
 	}
 
-	if ((request != PTRACE_DETACH) && anti_ptrace_uid(child, __func__)) {
-		ret = -EPERM;
-		goto out_put_task_struct;
-	}
-	
 	if (request == PTRACE_ATTACH || request == PTRACE_SEIZE) {
 		ret = ptrace_attach(child, request, addr, data);
 		/*
@@ -1117,7 +1076,6 @@ asmlinkage long compat_sys_ptrace(compat_long_t request, compat_long_t pid,
 		if (ret || request != PTRACE_DETACH)
 			ptrace_unfreeze_traced(child);
 	}
-
 
  out_put_task_struct:
 	put_task_struct(child);

@@ -38,6 +38,8 @@ struct csid_device {
 
 	struct clk *csid0_clk[6];
 	struct clk *csid_clk[6];
+
+	uint32_t irq_count;/*                                                                              */
 };
 
 #define VIDIOC_MSM_CSID_CFG \

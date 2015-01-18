@@ -129,7 +129,7 @@ inline void set_amp_gain(int amp_no, int amp_state)
 	int fail = 0;
 
 	D("set_amp_gain : amp_no[%d] amp_state[%d]\n", amp_no, amp_state);
-	
+
 	switch (amp_state) {
 	case SPK_ON:
 		//If  sysfs status is zero then speaker on request is ignored ( only from AAT )
@@ -476,7 +476,7 @@ static int tpa2028d_amp_probe(struct i2c_client *client,
 	amp_data[amp_no]->pdata = pdata;
 	amp_data[amp_no]->state = -1;	// Speaker initial status value   0:Speaker Off     1: Speaker On
 	data->client = client;
-	
+
 	i2c_set_clientdata(client, data);
 
 	set_amp_gain(amp_no, SPK_OFF);

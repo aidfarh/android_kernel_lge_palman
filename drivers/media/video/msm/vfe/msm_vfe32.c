@@ -28,16 +28,16 @@
 #include "msm_cam_server.h"
 #include "msm_vfe32.h"
 
-#ifndef CONFIG_MACH_APQ8064_AWIFI
-//Start LGE_BSP_CAMERA::youngwook.song@lge.com WBT Error
+#ifndef CONFIG_MACH_APQ8064_PALMAN
+//                                                      
 #define BUFFER_SIZE_10 10
-//End LGE_BSP_CAMERA::youngwook.song@lge.com WBT Error
-//Start LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+//                                                    
+//                                                                                   
 #include <linux/syscalls.h>
 int BrightnessDownRatio = 3;
 int CurrentBrightnessValue;
 int ControlBrightnessValue;
-//End LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+//                                                                                 
 #endif
 atomic_t irq_cnt;
 
@@ -148,9 +148,9 @@ static struct vfe32_cmd_type vfe32_cmd[] = {
 		{VFE_CMD_EPOCH2_ACK},
 		{VFE_CMD_START_RECORDING},
 /*60*/	{VFE_CMD_STOP_RECORDING},
-//Start LGE_BSP_CAMERA : iommu page fault patch for JB - jonghwan.ko@lge.com
+//                                                                          
 		{VFE_CMD_STOP_RECORDING_DONE},  //		{VFE_CMD_DUMMY_5},
-//End  LGE_BSP_CAMERA : iommu page fault patch for JB - jonghwan.ko@lge.com
+//                                                                         
 		{VFE_CMD_DUMMY_6},
 		{VFE_CMD_CAPTURE, V32_CAPTURE_LEN, 0xFF},
 		{VFE_CMD_DUMMY_7},
@@ -445,6 +445,11 @@ static const char * const vfe32_general_cmd[] = {
 	"VFE_CMD_TEST_GEN_CFG",
 	"VFE_CMD_STOP_RECORDING_DONE",
 };
+
+/*                                                                                                      */
+static atomic_t recovery_active, fault_recovery;
+static uint32_t recover_irq_mask0, recover_irq_mask1;
+/*                                                                                                      */
 
 uint8_t vfe32_use_bayer_stats(struct vfe32_ctrl_type *vfe32_ctrl)
 {
@@ -779,6 +784,29 @@ static void vfe32_subdev_notify(int id, int path, uint32_t inst_handle,
 	v4l2_subdev_notify(sd, NOTIFY_VFE_BUF_EVT, &rp);
 	spin_unlock_irqrestore(&share_ctrl->sd_notify_lock, flags);
 }
+/*                                                                                                   */
+static void vfe32_complete_reset(struct axi_ctrl_t *axi_ctrl)
+{
+	pr_info("%s E", __func__);
+	/* Clear all IRQs from MASK 0 */
+	msm_camera_io_w(0x0, axi_ctrl->share_ctrl->vfebase + VFE_IRQ_MASK_0);
+	/* Clear all IRQs from MASK 1 except RESET IRQ */
+	msm_camera_io_w((0x1 << 23),
+	axi_ctrl->share_ctrl->vfebase + VFE_IRQ_MASK_1);
+
+	msm_camera_io_w(VFE_CLEAR_ALL_IRQS,
+	axi_ctrl->share_ctrl->vfebase + VFE_IRQ_CLEAR_0);
+	msm_camera_io_w(VFE_CLEAR_ALL_IRQS,
+	axi_ctrl->share_ctrl->vfebase + VFE_IRQ_CLEAR_1);
+
+	/* Disable CAMIF capture */
+	msm_camera_io_w(0x2, axi_ctrl->share_ctrl->vfebase +	VFE_CAMIF_COMMAND);
+	msm_camera_io_w(AXI_HALT,
+		axi_ctrl->share_ctrl->vfebase + VFE_AXI_CMD);
+	wmb();
+	pr_info("%s X", __func__);
+}
+/*                                                                                                   */
 
 static int vfe32_config_axi(
 	struct axi_ctrl_t *axi_ctrl, int mode, uint32_t *ao)
@@ -968,6 +996,7 @@ static void axi_global_reset_internal_variables(
 	atomic_set(&axi_ctrl->share_ctrl->rdi0_update_ack_pending, 0);
 	atomic_set(&axi_ctrl->share_ctrl->rdi1_update_ack_pending, 0);
 	atomic_set(&axi_ctrl->share_ctrl->rdi2_update_ack_pending, 0);
+	atomic_set(&fault_recovery, 0); /*                                                                                                 */
 
 	/* 0 for continuous mode, 1 for snapshot mode */
 	axi_ctrl->share_ctrl->operation_mode = 0;
@@ -1179,6 +1208,8 @@ static void vfe32_reset_internal_variables(
 	vfe32_ctrl->frame_skip_cnt = 31;
 	vfe32_ctrl->frame_skip_pattern = 0xffffffff;
 	vfe32_ctrl->snapshot_frame_cnt = 0;
+	atomic_set(&recovery_active, 0); /*                                                                                                    */
+
 	vfe32_set_default_reg_values(vfe32_ctrl);
 }
 
@@ -1588,10 +1619,10 @@ static int vfe_stats_cs_buf_init(
 }
 
 static void vfe32_start_common(
-	struct msm_cam_media_controller *pmctl,  /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	struct msm_cam_media_controller *pmctl,  /*                                                                            */
 	struct vfe32_ctrl_type *vfe32_ctrl)
 {
-	pmctl->hardware_running = 1; /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	pmctl->hardware_running = 1; /*                                                                            */
 	CDBG("VFE opertaion mode = 0x%x, output mode = 0x%x\n",
 		vfe32_ctrl->share_ctrl->operation_mode,
 		vfe32_ctrl->share_ctrl->outpath.output_mode);
@@ -1599,6 +1630,7 @@ static void vfe32_start_common(
 		VFE_CAMIF_COMMAND);
 	msm_camera_io_w_mb(VFE_AXI_CFG_MASK,
 		vfe32_ctrl->share_ctrl->vfebase + VFE_AXI_CFG);
+	vfe32_ctrl->share_ctrl->overflow_count = 0; /*                                                                                                    */
 }
 
 static int vfe32_start_recording(
@@ -1621,14 +1653,14 @@ static int vfe32_stop_recording(
 	return 0;
 }
 
-//Start LGE_BSP_CAMERA : iommu page fault patch for JB - jonghwan.ko@lge.com
+//                                                                          
 static void vfe32_stop_recording_done(
 	struct msm_cam_media_controller *pmctl,
 	struct vfe32_ctrl_type *vfe32_ctrl)
 {
 	msm_camio_bus_scale_cfg(pmctl->sdata->pdata->cam_bus_scale_table, S_PREVIEW);
 }
-//End  LGE_BSP_CAMERA : iommu page fault patch for JB - jonghwan.ko@lge.com
+//                                                                         
 
 static void vfe32_start_liveshot(
 	struct msm_cam_media_controller *pmctl,
@@ -1658,7 +1690,7 @@ static int vfe32_zsl(
 	struct vfe32_ctrl_type *vfe32_ctrl)
 {
 	vfe32_ctrl->share_ctrl->start_ack_pending = TRUE;
-	vfe32_start_common(pmctl, vfe32_ctrl); /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	vfe32_start_common(pmctl, vfe32_ctrl); /*                                                                            */
 
 	msm_camera_io_w(1, vfe32_ctrl->share_ctrl->vfebase + 0x18C);
 	msm_camera_io_w(1, vfe32_ctrl->share_ctrl->vfebase + 0x188);
@@ -1671,7 +1703,7 @@ static int vfe32_capture_raw(
 {
 	vfe32_ctrl->share_ctrl->outpath.out0.capture_cnt = num_frames_capture;
 	vfe32_ctrl->share_ctrl->vfe_capture_count = num_frames_capture;
-	vfe32_start_common(pmctl, vfe32_ctrl); /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	vfe32_start_common(pmctl, vfe32_ctrl); /*                                                                            */
 	return 0;
 }
 
@@ -1680,7 +1712,7 @@ static int vfe32_capture(
 	uint32_t num_frames_capture,
 	struct vfe32_ctrl_type *vfe32_ctrl)
 {
-	pr_err("%s: E", __func__); //LGE_CHANGE, for check shutterlag time yt.jeon@lge.com
+	pr_err("%s: E", __func__); //                                                     
 	/* capture command is valid for both idle and active state. */
 	vfe32_ctrl->share_ctrl->outpath.out1.capture_cnt = num_frames_capture;
 	if (vfe32_ctrl->share_ctrl->current_mode ==
@@ -1699,11 +1731,11 @@ static int vfe32_capture(
 
 	vfe32_ctrl->share_ctrl->vfe_capture_count = num_frames_capture;
 
-	vfe32_start_common(pmctl, vfe32_ctrl); /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	vfe32_start_common(pmctl, vfe32_ctrl); /*                                                                            */
 	/* for debug */
 	msm_camera_io_w(1, vfe32_ctrl->share_ctrl->vfebase + 0x18C);
 	msm_camera_io_w(1, vfe32_ctrl->share_ctrl->vfebase + 0x188);
-	pr_err("%s: X", __func__); //LGE_CHANGE, for check shutterlag time yt.jeon@lge.com
+	pr_err("%s: X", __func__); //                                                     
 	return 0;
 }
 
@@ -1711,7 +1743,7 @@ static int vfe32_start(
 	struct msm_cam_media_controller *pmctl,
 	struct vfe32_ctrl_type *vfe32_ctrl)
 {
-	vfe32_start_common(pmctl, vfe32_ctrl); /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	vfe32_start_common(pmctl, vfe32_ctrl); /*                                                                            */
 	return 0;
 }
 
@@ -2081,8 +2113,8 @@ static void vfe32_send_isp_msg(
 			(void *)&isp_msg_evt);
 }
 
-#ifndef CONFIG_MACH_APQ8064_AWIFI
-//Start LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+#ifndef CONFIG_MACH_APQ8064_PALMAN
+//                                                                                   
 static int atoi(const char *name)
 {
 	int val = 0;
@@ -2105,9 +2137,9 @@ static void Set_LCD_Brightness(int value)
     fd = sys_open("/sys/class/leds/lcd-backlight/brightness", O_RDWR | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         char buffer[10];
-//Start LGE_BSP_CAMERA::youngwook.song@lge.com WBT Error
+//                                                      
         int bytes = snprintf(buffer, BUFFER_SIZE_10, "%d\n", value);
-//End LGE_BSP_CAMERA::youngwook.song@lge.com WBT Error
+//                                                    
         sys_write(fd, buffer, bytes);
         sys_close(fd);
     }
@@ -2138,7 +2170,7 @@ static int Get_LCD_Brightness(void)
 	set_fs(old_fs);
 	return value;
 }
-//End LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+//                                                                                 
 #endif
 static int vfe32_proc_general(
 	struct msm_cam_media_controller *pmctl,
@@ -2161,7 +2193,7 @@ static int vfe32_proc_general(
 			vfe32_general_cmd[cmd->id]);
 		vfe32_ctrl->share_ctrl->vfe_reset_flag = true;
 		vfe32_reset(vfe32_ctrl);
-		pmctl->hardware_running = 0; /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+		pmctl->hardware_running = 0; /*                                                                            */
 		break;
 	case VFE_CMD_START:
 		pr_info("vfe32_proc_general: cmdID = %s\n",
@@ -2212,8 +2244,8 @@ static int vfe32_proc_general(
 	case VFE_CMD_START_RECORDING:
 		pr_info("vfe32_proc_general: cmdID = %s\n",
 			vfe32_general_cmd[cmd->id]);
-#ifndef CONFIG_MACH_APQ8064_AWIFI
-		//Start LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+#ifndef CONFIG_MACH_APQ8064_PALMAN
+		//                                                                                   
 		CurrentBrightnessValue = Get_LCD_Brightness();
 		if (CurrentBrightnessValue > 140)
 		{
@@ -2222,7 +2254,7 @@ static int vfe32_proc_general(
 			printk("[LCD_Control] Control LCD Brightness = %d\n",ControlBrightnessValue);
 		}
 		printk("[LCD_Control] Current LCD Brightness = %d\n",CurrentBrightnessValue);
-		//End LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+		//                                                                                 
 #endif		
 		rc = vfe32_start_recording(pmctl, vfe32_ctrl);
 		break;
@@ -2231,18 +2263,18 @@ static int vfe32_proc_general(
 			vfe32_general_cmd[cmd->id]);
 		rc = vfe32_stop_recording(pmctl, vfe32_ctrl);
 		break;		
-//Start LGE_BSP_CAMERA : iommu page fault patch for JB - jonghwan.ko@lge.com
+//                                                                          
 	case VFE_CMD_STOP_RECORDING_DONE:
 		pr_info("vfe32_proc_general: cmdID = VFE_CMD_STOP_RECORDING_DONE\n");
-#ifndef CONFIG_MACH_APQ8064_AWIFI		
-		//Start LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+#ifndef CONFIG_MACH_APQ8064_PALMAN		
+		//                                                                                   
 		printk("[LCD_Control] Current LCD Brightness = %d\n",CurrentBrightnessValue);
 		Set_LCD_Brightness(CurrentBrightnessValue);
-		//End LGE_BSP_CAMERA::seongjo.kim@lge.com LCD Brightness down when camcording enter
+		//                                                                                 
 #endif		
 		vfe32_stop_recording_done(pmctl, vfe32_ctrl);
 		break;
-//End  LGE_BSP_CAMERA : iommu page fault patch for JB - jonghwan.ko@lge.com
+//                                                                         
 	case VFE_CMD_OPERATION_CFG: {
 		if (cmd->length != V32_OPERATION_CFG_LEN) {
 			rc = -EINVAL;
@@ -3327,7 +3359,7 @@ static int vfe32_proc_general(
 		}
 
 		vfe32_stop(vfe32_ctrl);
-		pmctl->hardware_running = 0; /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+		pmctl->hardware_running = 0; /*                                                                            */
 		break;
 
 	case VFE_CMD_SYNC_TIMER_SETTING:
@@ -4069,8 +4101,18 @@ static void vfe32_process_reg_update_irq(
 				msm_camera_io_w(0, share_ctrl->vfebase +
 					vfe32_AXI_WM_CFG[
 					share_ctrl->outpath.out0.ch1]);
+/*                                                                                                      */
+				share_ctrl->liveshot_state = VFE_STATE_HW_STOP_REQUESTED;
+				msm_camera_io_w_mb(1, share_ctrl->vfebase +
+					VFE_REG_UPDATE_CMD);
+/*                                                                                                      */
 			}
 			break;
+/*                                                                                                      */
+		case VFE_STATE_HW_STOP_REQUESTED:
+			share_ctrl->liveshot_state = VFE_STATE_HW_STOPPED;
+			break;
+/*                                                                                                      */
 		case VFE_STATE_STOP_REQUESTED:
 			if (share_ctrl->comp_output_mode &
 					VFE32_OUTPUT_MODE_PRIMARY) {
@@ -4291,6 +4333,71 @@ static void vfe32_process_reset_irq(
 		struct vfe32_ctrl_type *vfe32_ctrl)
 {
 	unsigned long flags;
+	
+/*                                                                                                      */
+	if (atomic_read(&recovery_active) == 1) {
+		vfe32_ctrl->share_ctrl->overflow_count++;
+		CDBG("%s Overflow incident # %d ", __func__,
+			vfe32_ctrl->share_ctrl->overflow_count);
+		if ((atomic_read(&fault_recovery) == 1) ||
+			(vfe32_ctrl->share_ctrl->overflow_count >
+				BUS_OVERFLOW_THRESHOLD)) {
+			/* This means either:
+			 * 1. IOMMU pagefault occurred.
+			 * 2. No of bus overflow incidents crossed the
+			 *    predefined threshold.
+			 * In either case, there is no point in continuing with
+			 * recovery at this point. Since VFE is already RESET,
+			 * instead of starting it again, just notify the
+			 * application about the error so that the camera
+			 * application can be gracefully exited. */
+			atomic_set(&recovery_active, 0);
+			pr_info("Stop recovery and notify application");
+			v4l2_subdev_notify(&vfe32_ctrl->subdev,
+				NOTIFY_VFE_CAMIF_ERROR, (void *)NULL);			
+			vfe32_send_isp_msg(&vfe32_ctrl->subdev,
+				vfe32_ctrl->share_ctrl->vfeFrameId,
+				MSG_ID_CAMIF_ERROR);
+			return;
+		}
+
+		pr_info("Recovery restart start\n");		
+		msm_camera_io_w(VFE_RELOAD_ALL_WRITE_MASTERS,
+			vfe32_ctrl->share_ctrl->vfebase + VFE_BUS_CMD);
+		msm_camera_io_w(recover_irq_mask0,
+			vfe32_ctrl->share_ctrl->vfebase + VFE_IRQ_MASK_0);
+		msm_camera_io_w(recover_irq_mask1,
+			vfe32_ctrl->share_ctrl->vfebase + VFE_IRQ_MASK_1);
+
+		if ((vfe32_ctrl->share_ctrl->liveshot_state ==
+				VFE_STATE_START_REQUESTED) ||
+			(vfe32_ctrl->share_ctrl->liveshot_state ==
+				VFE_STATE_STARTED) ||
+			(vfe32_ctrl->share_ctrl->liveshot_state ==
+				VFE_STATE_HW_STOP_REQUESTED)) {
+			pr_err("Liveshot recovery\n");
+			vfe32_ctrl->share_ctrl->outpath.out0.capture_cnt = 1;
+			vfe32_ctrl->share_ctrl->vfe_capture_count =
+			vfe32_ctrl->share_ctrl->outpath.out0.capture_cnt;
+			vfe32_ctrl->share_ctrl->liveshot_state =
+				VFE_STATE_START_REQUESTED;
+		}
+		msm_camera_io_w_mb(1,
+			vfe32_ctrl->share_ctrl->vfebase + VFE_REG_UPDATE_CMD);
+		pr_info("camif cfg: 0x%x\n",
+			msm_camera_io_r(
+			vfe32_ctrl->share_ctrl->vfebase + VFE_CAMIF_FRAME_CFG));
+		/* Clear CAMIF Status */
+		msm_camera_io_w_mb(0x4,
+			vfe32_ctrl->share_ctrl->vfebase + VFE_CAMIF_COMMAND);
+		/* Enable CAMIF capture */
+		msm_camera_io_w_mb(0x1,
+			vfe32_ctrl->share_ctrl->vfebase + VFE_CAMIF_COMMAND);
+		atomic_set(&recovery_active, 0);
+		pr_err("Recovery restart done\n");
+		return;
+	}
+/*                                                                                                      */
 
 	atomic_set(&vfe32_ctrl->share_ctrl->vstate, 0);
 	atomic_set(&vfe32_ctrl->share_ctrl->handle_common_irq, 0);
@@ -4364,11 +4471,11 @@ static void vfe32_process_camif_sof_irq(
 	if (vfe32_ctrl->vfe_sof_count_enable)
 	{
 		vfe32_ctrl->share_ctrl->vfeFrameId++;
-//LGE_UPDATE_S 0828 add messages to debug timeout error yt.jeon@lge.com
+//                                                                     
 		if (vfe32_ctrl->share_ctrl->vfeFrameId < 15) {
 			pr_err("%s: SOF frame id %d\n", __func__, vfe32_ctrl->share_ctrl->vfeFrameId);
 		}
-//LGE_UPDATE_E 0828 add messages to debug timeout error yt.jeon@lge.com		
+//                                                                       
 	}
 
 	vfe32_send_isp_msg(&vfe32_ctrl->subdev,
@@ -4399,11 +4506,20 @@ static void vfe32_process_error_irq(
 		pr_err("vfe32_irq: camif errors\n");
 		reg_value = msm_camera_io_r(
 			axi_ctrl->share_ctrl->vfebase + VFE_CAMIF_STATUS);
-		v4l2_subdev_notify(&axi_ctrl->subdev,
-			NOTIFY_VFE_CAMIF_ERROR, (void *)NULL);
-		pr_err("camifStatus  = 0x%x\n", reg_value);
-		vfe32_send_isp_msg(&axi_ctrl->subdev,
+		/* In case of camif errors, notify the applicaiton only
+		 * if overflow recovery is not active. If we are trying to
+		 * automatically recover, then we dont want to inform the
+		 * application of the error. */
+/*                                                                                                      */
+		if ((reg_value & ~0x80000000) && 
+				!atomic_read(&recovery_active)) {
+/*                                                                                                      */
+			v4l2_subdev_notify(&axi_ctrl->subdev,
+				NOTIFY_VFE_CAMIF_ERROR, (void *)NULL);
+			pr_err("camifStatus  = 0x%x\n", reg_value);
+			vfe32_send_isp_msg(&axi_ctrl->subdev,
 			axi_ctrl->share_ctrl->vfeFrameId, MSG_ID_CAMIF_ERROR);
+		}
 	}
 
 	if (errStatus & VFE32_IMASK_BHIST_OVWR)
@@ -4445,13 +4561,18 @@ static void vfe32_process_error_irq(
 	if (errStatus & VFE32_IMASK_STATS_SKIN_BHIST_BUS_OVFL)
 		pr_err("vfe32_irq: skin/bhist stats bus overflow\n");
 
+#if 0/*                                                                                                    */
 	if (errStatus & VFE32_IMASK_BUS_OVFL_ERROR) {
 		pr_err("%s Bus Overflow. Notify error ", __func__);
+		
+		msm_camera_io_dump2(axi_ctrl->share_ctrl->vfebase, 1024); /*                                                                         */
+
 		v4l2_subdev_notify(&axi_ctrl->subdev,
 			NOTIFY_VFE_CAMIF_ERROR, (void *)NULL);
 		vfe32_send_isp_msg(&axi_ctrl->subdev,
 			axi_ctrl->share_ctrl->vfeFrameId, MSG_ID_CAMIF_ERROR);
 	}
+#endif	
 }
 
 static void vfe32_process_common_error_irq(
@@ -4482,10 +4603,14 @@ static void vfe32_process_common_error_irq(
 	if (errStatus & VFE32_IMASK_AXI_ERROR)
 		pr_err("vfe32_irq: axi error\n");
 
+#if 0/*                                                                                                    */
+	msm_camera_io_dump2(axi_ctrl->share_ctrl->vfebase, 1024); /*                                                                         */
+	
 	v4l2_subdev_notify(&axi_ctrl->subdev, NOTIFY_VFE_CAMIF_ERROR,
 		(void *)NULL);
 	vfe32_send_isp_msg(&axi_ctrl->subdev,
 		axi_ctrl->share_ctrl->vfeFrameId, MSG_ID_CAMIF_ERROR);
+#endif	
 }
 
 
@@ -4534,6 +4659,7 @@ static void vfe32_process_output_path_irq_0(
 	uint32_t ch0_paddr, ch1_paddr, ch2_paddr;
 	uint8_t out_bool = 0;
 	struct msm_free_buf *free_buf = NULL;
+
 	free_buf = vfe32_check_free_buffer(VFE_MSG_OUTPUT_IRQ,
 		VFE_MSG_OUTPUT_PRIMARY, axi_ctrl);
 
@@ -4557,6 +4683,12 @@ static void vfe32_process_output_path_irq_0(
 		axi_ctrl->share_ctrl->liveshot_state ==
 			VFE_STATE_STARTED ||
 		axi_ctrl->share_ctrl->liveshot_state ==
+/*                                                                                                      */
+			VFE_STATE_HW_STOP_REQUESTED ||
+		axi_ctrl->share_ctrl->liveshot_state ==
+			VFE_STATE_HW_STOPPED ||
+		axi_ctrl->share_ctrl->liveshot_state ==
+/*                                                                                                      */
 			VFE_STATE_STOP_REQUESTED ||
 		axi_ctrl->share_ctrl->liveshot_state ==
 			VFE_STATE_STOPPED) &&
@@ -5532,6 +5664,10 @@ static void vfe32_process_irq(
 static void axi32_do_tasklet(unsigned long data)
 {
 	unsigned long flags;
+/*                                                                                                      */
+	uint8_t  axi_busy_flag = true;
+	uint32_t halt_timeout = 100;
+/*                                                                                                      */
 	struct axi_ctrl_t *axi_ctrl = (struct axi_ctrl_t *)data;
 	struct vfe32_ctrl_type *vfe32_ctrl = axi_ctrl->share_ctrl->vfe32_ctrl;
 	struct vfe32_isr_queue_cmd *qcmd = NULL;
@@ -5583,62 +5719,104 @@ static void axi32_do_tasklet(unsigned long data)
 				(qcmd->vfeInterruptStatus0 &
 					VFE_IRQ_STATUS0_STATS_CS);
 		}
-		if (qcmd->vfeInterruptStatus0 &
-				VFE_IRQ_STATUS0_CAMIF_SOF_MASK) {
-			if (stat_interrupt)
-				vfe32_ctrl->simultaneous_sof_stat = 1;
-			v4l2_subdev_notify(&vfe32_ctrl->subdev,
-				NOTIFY_VFE_IRQ,
-				(void *)VFE_IRQ_STATUS0_CAMIF_SOF_MASK);
+		if (atomic_read(&fault_recovery) && !atomic_read(&recovery_active)) {/*                                                                                                    */
+			pr_err("avert page fault when overflow recovery not in progress");
+#if 0			
+			while (axi_busy_flag && halt_timeout--) {
+				if (msm_camera_io_r(axi_ctrl->share_ctrl->vfebase + VFE_AXI_STATUS) & 0x1)
+					axi_busy_flag = false;
+				}
+#endif			
+			msm_camera_io_w_mb(AXI_HALT_CLEAR, axi_ctrl->share_ctrl->vfebase + VFE_AXI_CMD);
+			v4l2_subdev_notify(&vfe32_ctrl->subdev, NOTIFY_VFE_CAMIF_ERROR,
+				(void *)NULL);
+			vfe32_send_isp_msg(&vfe32_ctrl->subdev,
+				vfe32_ctrl->share_ctrl->vfeFrameId, MSG_ID_CAMIF_ERROR);
 		}
+		if (!atomic_read(&recovery_active)) {/*                                                                                                    */
+			if (qcmd->vfeInterruptStatus0 &
+				VFE_IRQ_STATUS0_CAMIF_SOF_MASK) {
+				if (stat_interrupt)
+					vfe32_ctrl->simultaneous_sof_stat = 1;
+				v4l2_subdev_notify(&vfe32_ctrl->subdev,
+					NOTIFY_VFE_IRQ,
+					(void *)VFE_IRQ_STATUS0_CAMIF_SOF_MASK);
+			}
 
-		/* interrupt to be processed,  *qcmd has the payload.  */
-		if (qcmd->vfeInterruptStatus0 &
-				VFE_IRQ_STATUS0_REG_UPDATE_MASK)
-			v4l2_subdev_notify(&vfe32_ctrl->subdev,
+			/* interrupt to be processed,  *qcmd has the payload. */
+			if (qcmd->vfeInterruptStatus0 &
+					VFE_IRQ_STATUS0_REG_UPDATE_MASK)
+				v4l2_subdev_notify(&vfe32_ctrl->subdev,
 				NOTIFY_VFE_IRQ,
 				(void *)VFE_IRQ_STATUS0_REG_UPDATE_MASK);
 
-		if (qcmd->vfeInterruptStatus1 &
-				VFE_IRQ_STATUS1_RDI0_REG_UPDATE_MASK)
-			v4l2_subdev_notify(&vfe32_ctrl->subdev,
+			if (qcmd->vfeInterruptStatus1 &
+					VFE_IRQ_STATUS1_RDI0_REG_UPDATE_MASK)
+				v4l2_subdev_notify(&vfe32_ctrl->subdev,
 				NOTIFY_VFE_IRQ,
 				(void *)VFE_IRQ_STATUS1_RDI0_REG_UPDATE);
 
-		if (qcmd->vfeInterruptStatus1 &
-				VFE_IRQ_STATUS1_RDI1_REG_UPDATE_MASK)
-			v4l2_subdev_notify(&vfe32_ctrl->subdev,
+			if (qcmd->vfeInterruptStatus1 &
+					VFE_IRQ_STATUS1_RDI1_REG_UPDATE_MASK)
+				v4l2_subdev_notify(&vfe32_ctrl->subdev,
 				NOTIFY_VFE_IRQ,
 				(void *)VFE_IRQ_STATUS1_RDI1_REG_UPDATE);
 
-		if (qcmd->vfeInterruptStatus1 &
-				VFE_IRQ_STATUS1_RDI2_REG_UPDATE_MASK)
-			v4l2_subdev_notify(&vfe32_ctrl->subdev,
+			if (qcmd->vfeInterruptStatus1 &
+					VFE_IRQ_STATUS1_RDI2_REG_UPDATE_MASK)
+				v4l2_subdev_notify(&vfe32_ctrl->subdev,
 				NOTIFY_VFE_IRQ,
 				(void *)VFE_IRQ_STATUS1_RDI2_REG_UPDATE);
+		}
 
-		if (qcmd->vfeInterruptStatus1 &
-				VFE_IMASK_WHILE_STOPPING_1)
+		if ((qcmd->vfeInterruptStatus1 &
+			VFE_IMASK_WHILE_STOPPING_1) &&
+			atomic_read(&recovery_active) != 2)/*                                                                                                    */
 			v4l2_subdev_notify(&vfe32_ctrl->subdev,
 				NOTIFY_VFE_IRQ,
 				(void *)VFE_IMASK_WHILE_STOPPING_1);
 
 		if (atomic_read(&axi_ctrl->share_ctrl->handle_common_irq)) {
-			if (qcmd->vfeInterruptStatus1 &
-					VFE32_IMASK_COMMON_ERROR_ONLY_1) {
+			if ((qcmd->vfeInterruptStatus1 &
+				VFE32_IMASK_COMMON_ERROR_ONLY_1) &&
+				atomic_read(&recovery_active) != 1) {/*                                                                                                    */
 				pr_err("irq	errorIrq\n");
 				vfe32_process_common_error_irq(
 					axi_ctrl,
 					qcmd->vfeInterruptStatus1 &
 					VFE32_IMASK_COMMON_ERROR_ONLY_1);
 			}
+/*                                                                                                      */
+			if ((qcmd->vfeInterruptStatus1 & 0x3FFF00) &&
+					atomic_read(&recovery_active) == 2) {
+				while (axi_busy_flag && halt_timeout--) {
+					if (msm_camera_io_r(
+						axi_ctrl->share_ctrl->vfebase + 
+							VFE_AXI_STATUS) & 0x1)
+						axi_busy_flag = false;
+				}
+				msm_camera_io_w_mb(AXI_HALT_CLEAR,
+					axi_ctrl->share_ctrl->vfebase +
+						VFE_AXI_CMD);
+				printk("Halt done\n");
+				msm_camera_io_w_mb(VFE_RESET_UPON_STOP_CMD,
+					axi_ctrl->share_ctrl->vfebase +
+						VFE_GLOBAL_RESET);
+				atomic_set(&recovery_active, 1);
+			}
+/*                                                                                                      */
 
-			v4l2_subdev_notify(&axi_ctrl->subdev,
-				NOTIFY_AXI_IRQ,
-				(void *)qcmd->vfeInterruptStatus0);
+			if(!atomic_read(&recovery_active)){/*                                                                                                    */
+				v4l2_subdev_notify(&axi_ctrl->subdev,
+					NOTIFY_AXI_IRQ,
+					(void *)qcmd->vfeInterruptStatus0);
+			}
 		}
 
-		if (atomic_read(&axi_ctrl->share_ctrl->vstate)) {
+
+
+		if (atomic_read(&axi_ctrl->share_ctrl->vstate) &&
+					!atomic_read(&recovery_active)) {/*                                                                                                    */
 			if (qcmd->vfeInterruptStatus1 &
 					VFE32_IMASK_VFE_ERROR_ONLY_1) {
 				pr_err("irq	errorIrq\n");
@@ -5752,7 +5930,8 @@ static irqreturn_t vfe32_parse_irq(int irq_num, void *data)
 	}
 
 	spin_lock_irqsave(&axi_ctrl->share_ctrl->stop_flag_lock, flags);
-	if (axi_ctrl->share_ctrl->stop_ack_pending) {
+	if (axi_ctrl->share_ctrl->stop_ack_pending ||
+			atomic_read(&recovery_active)) {/*                                                                                                    */
 		irq.vfeIrqStatus0 &= VFE_IMASK_WHILE_STOPPING_0;
 		irq.vfeIrqStatus1 &= VFE_IMASK_WHILE_STOPPING_1;
 	}
@@ -5763,6 +5942,24 @@ static irqreturn_t vfe32_parse_irq(int irq_num, void *data)
 
 	qcmd->vfeInterruptStatus0 = irq.vfeIrqStatus0;
 	qcmd->vfeInterruptStatus1 = irq.vfeIrqStatus1;
+	
+/*                                                                                                   */
+	if (atomic_read(&fault_recovery)) {
+		printk("Start fault recovery\n");
+		vfe32_complete_reset(axi_ctrl);
+/*                                                                                                      */
+	} else if ((qcmd->vfeInterruptStatus1 & 0x3FFF00) &&
+				!atomic_read(&recovery_active)) {
+		printk("Start bus overflow recovery\n");
+		recover_irq_mask0 = msm_camera_io_r(
+			axi_ctrl->share_ctrl->vfebase + VFE_IRQ_MASK_0);
+		recover_irq_mask1 = msm_camera_io_r(
+			axi_ctrl->share_ctrl->vfebase + VFE_IRQ_MASK_1);
+		vfe32_complete_reset(axi_ctrl);
+		atomic_set(&recovery_active, 2);
+	}
+/*                                                                                                   */
+/*                                                                                                      */
 
 	spin_lock_irqsave(&axi_ctrl->tasklet_lock, flags);
 	list_add_tail(&qcmd->list, &axi_ctrl->tasklet_q);
@@ -5897,8 +6094,19 @@ static long msm_vfe_subdev_ioctl(struct v4l2_subdev *sd,
 	long rc = 0;
 	struct vfe_cmd_stats_buf *scfg = NULL;
 	struct vfe_cmd_stats_ack *sack = NULL;
+	
+/*                                                                                                   */
+	CDBG("%s\n", __func__);
+	if (subdev_cmd == VIDIOC_MSM_VFE_INIT) {
+		CDBG("%s init\n", __func__);
+		return msm_vfe_subdev_init(sd);
+	} else if (subdev_cmd == VIDIOC_MSM_VFE_RELEASE) {
+		msm_vfe_subdev_release(sd);
+		return 0;
+	}
+/*                                                                                                   */
 
-//Start LGE_BSP_CAMERA : mediaserver recovery patch from QCT - jonghwan.ko@lge.com
+//                                                                                
 #if 0
 	if (!vfe32_ctrl->share_ctrl->vfebase) {
 		pr_err("%s: base address unmapped\n", __func__);
@@ -5939,16 +6147,9 @@ static long msm_vfe_subdev_ioctl(struct v4l2_subdev *sd,
 	   }
 #endif
 #endif
-//End  LGE_BSP_CAMERA : mediaserver recovery patch from QCT - jonghwan.ko@lge.com
+//                                                                               
 
-	CDBG("%s\n", __func__);
-	if (subdev_cmd == VIDIOC_MSM_VFE_INIT) {
-		CDBG("%s init\n", __func__);
-		return msm_vfe_subdev_init(sd);
-	} else if (subdev_cmd == VIDIOC_MSM_VFE_RELEASE) {
-		msm_vfe_subdev_release(sd);
-		return 0;
-	}
+
 	vfe_params = (struct msm_camvfe_params *)arg;
 	cmd = vfe_params->vfe_cfg;
 	data = vfe_params->data;
@@ -6151,6 +6352,18 @@ static const struct v4l2_subdev_ops msm_vfe_subdev_ops = {
 	.core = &msm_vfe_subdev_core_ops,
 };
 
+/*                                                                                                   */
+#if defined(CONFIG_MSM_IOMMU) && defined(VFE_IOMMU_FAULT_HANDLER)
+static int vfe_iommu_fault_handler(struct iommu_domain *domain,
+	struct device *dev, unsigned long iova, int flags, void *token)
+{
+	pr_err("iommu page fault has happened\n");
+	atomic_set(&fault_recovery, 1);
+	return -ENOSYS;
+}
+#endif
+/*                                                                                                   */
+
 int msm_axi_subdev_init(struct v4l2_subdev *sd,
 	uint8_t dual_enabled)
 {
@@ -6162,11 +6375,11 @@ int msm_axi_subdev_init(struct v4l2_subdev *sd,
 		rc = -EINVAL;
 		goto mctl_failed;
 	}
-/* LGE_CHANGE_S, enable to use vfe bus clk as config of cam vector , 2013.2.27, yt.jeon@lge.com */
+/*                                                                                              */
 #if defined(CONFIG_MACH_APQ8064_L05E)
 	dual_enabled = 0;
 #endif
-/* LGE_CHANGE_E, enable to use vfe bus clk as config of cam vectors , 2013.2.27, yt.jeon@lge.com */
+/*                                                                                               */
 
 	axi_ctrl->share_ctrl->axi_ref_cnt++;
 	if (axi_ctrl->share_ctrl->axi_ref_cnt > 1)
@@ -6174,6 +6387,7 @@ int msm_axi_subdev_init(struct v4l2_subdev *sd,
 	axi_ctrl->share_ctrl->dual_enabled = dual_enabled;
 
 	axi_ctrl->share_ctrl->lp_mode = 0;
+	atomic_set(&fault_recovery, 0); /*                                                                                                 */
 	spin_lock_init(&axi_ctrl->tasklet_lock);
 	INIT_LIST_HEAD(&axi_ctrl->tasklet_q);
 	spin_lock_init(&axi_ctrl->share_ctrl->sd_notify_lock);
@@ -6200,6 +6414,14 @@ int msm_axi_subdev_init(struct v4l2_subdev *sd,
 		goto clk_enable_failed;
 
 #ifdef CONFIG_MSM_IOMMU
+/*                                                                                                   */
+	if (mctl->domain == NULL) {
+		pr_err("%s: iommu domain not initialized\n", __func__);
+		rc = -EINVAL;
+		goto device_imgwr_attach_failed;
+	}
+/*                                                                                                   */
+
 	rc = iommu_attach_device(mctl->domain, axi_ctrl->iommu_ctx_imgwr);
 	if (rc < 0) {
 		pr_err("%s: imgwr attach failed rc = %d\n", __func__, rc);
@@ -6212,6 +6434,12 @@ int msm_axi_subdev_init(struct v4l2_subdev *sd,
 		rc = -ENODEV;
 		goto device_misc_attach_failed;
 	}
+/*                                                                                                   */
+#ifdef VFE_IOMMU_FAULT_HANDLER
+	iommu_set_fault_handler(mctl->domain, vfe_iommu_fault_handler, NULL);
+#endif	
+/*                                                                                                   */
+
 #endif
 
 	msm_camio_bus_scale_cfg(
@@ -6274,7 +6502,7 @@ int msm_vfe_subdev_init(struct v4l2_subdev *sd)
 	vfe32_ctrl->update_rolloff = false;
 	vfe32_ctrl->update_la = false;
 	vfe32_ctrl->update_gamma = false;
-#if defined(LGE_GK_CAMERA_BSP) ||defined(CONFIG_MACH_APQ8064_AWIFI)
+#if defined(LGE_GK_CAMERA_BSP) ||defined(CONFIG_MACH_APQ8064_PALMAN)
 //	vfe32_ctrl->vfe_sof_count_enable = true;
 	if (vfe32_ctrl->share_ctrl->dual_enabled)
 		vfe32_ctrl->vfe_sof_count_enable = false;
@@ -6299,36 +6527,37 @@ void msm_axi_subdev_release(struct v4l2_subdev *sd)
 	struct msm_cam_media_controller *pmctl =
 		v4l2_get_subdev_hostdata(sd);
 
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 	mutex_lock(&axi_ctrl->state_mutex);
 	/*printk(KERN_DEBUG "%s : task = %s, pid = %d\n", __func__, current->comm, current->pid);*/
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 
 	if (!axi_ctrl->share_ctrl->vfebase) {
 		pr_err("%s: base address unmapped\n", __func__);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto release_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	}
 
-	pr_err("%s called\n", __func__); /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	pr_err("%s called\n", __func__); /*                                                                            */
 	CDBG("%s, free_irq\n", __func__);
 	axi_ctrl->share_ctrl->axi_ref_cnt--;
 	if (axi_ctrl->share_ctrl->axi_ref_cnt > 0)
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto release_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 
+	atomic_set(&fault_recovery, 0);/*                                                                                                 */
 	axi_clear_all_interrupts(axi_ctrl->share_ctrl);
 
 	axi_ctrl->share_ctrl->dual_enabled = 0;
@@ -6351,20 +6580,20 @@ void msm_axi_subdev_release(struct v4l2_subdev *sd)
 
 	msm_camio_bus_scale_cfg(
 		pmctl->sdata->pdata->cam_bus_scale_table, S_EXIT);
-	pr_err("%s called X\n", __func__); /* LGE_CHANGE, patch for IOMMU page fault, 2012.09.06, jungryoul.choi@lge.com */
+	pr_err("%s called X\n", __func__); /*                                                                            */
 
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 release_ret:
 	mutex_unlock(&axi_ctrl->state_mutex);
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 }
 
 void msm_vfe_subdev_release(struct v4l2_subdev *sd)
 {
-	struct vfe32_ctrl_type *vfe32_ctrl =
-		(struct vfe32_ctrl_type *)v4l2_get_subdevdata(sd);
+	//struct vfe32_ctrl_type *vfe32_ctrl =
+	//	(struct vfe32_ctrl_type *)v4l2_get_subdevdata(sd);
 	CDBG("vfe subdev release %p\n",
 		vfe32_ctrl->share_ctrl->vfebase);
 }
@@ -6398,7 +6627,7 @@ void axi_abort(struct axi_ctrl_t *axi_ctrl)
 	axi_ctrl->share_ctrl->stop_ack_pending  = TRUE;
 	spin_unlock_irqrestore(&axi_ctrl->share_ctrl->stop_flag_lock, flags);
 
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 	mutex_lock(&axi_ctrl->state_mutex);
 	if (!axi_ctrl->share_ctrl->vfebase) {
@@ -6407,7 +6636,7 @@ void axi_abort(struct axi_ctrl_t *axi_ctrl)
 	}
 	/*printk(KERN_DEBUG "%s : task = %s, pid = %d\n", __func__, current->comm, current->pid);*/
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 
 	msm_camera_io_w(AXI_HALT,
 		axi_ctrl->share_ctrl->vfebase + VFE_AXI_CMD);
@@ -6437,12 +6666,12 @@ void axi_abort(struct axi_ctrl_t *axi_ctrl)
 	if (axi_ctrl->share_ctrl->sync_abort)
 		wait_for_completion_interruptible(
 			&axi_ctrl->share_ctrl->reset_complete);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 abort_ret:
 	mutex_unlock(&axi_ctrl->state_mutex);
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 }
 
 int axi_config_buffers(struct axi_ctrl_t *axi_ctrl,
@@ -6628,21 +6857,21 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 		~(VFE_OUTPUTS_RDI0|VFE_OUTPUTS_RDI1|VFE_OUTPUTS_RDI2));
 	CDBG("axi start = %d\n",
 		axi_ctrl->share_ctrl->current_mode);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 	mutex_lock(&axi_ctrl->state_mutex);
 	/*printk(KERN_DEBUG "%s : task = %s, pid = %d\n", __func__, current->comm, current->pid);*/
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	rc = axi_config_buffers(axi_ctrl, vfe_params);
 	if (rc < 0)
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto start_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 
 	switch (vfe_params.cmd_type) {
 	case AXI_CMD_PREVIEW:
@@ -6669,13 +6898,13 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 		if (!axi_ctrl->share_ctrl->dual_enabled)
 			msm_camio_bus_scale_cfg(
 			pmctl->sdata->pdata->cam_bus_scale_table, S_VIDEO);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto start_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	case AXI_CMD_ZSL:
 		if (axi_ctrl->share_ctrl->lp_mode)
 			msm_camio_bus_scale_cfg(
@@ -6685,7 +6914,7 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 			msm_camio_bus_scale_cfg(
 				pmctl->sdata->pdata->cam_bus_scale_table,
 				S_ZSL);
-			//LGE_update add log yt.jeon@lge.com
+			//                                  
 			pr_err("%s: ZSl ib: %llud ab: %llud\n", __func__ ,(uint64_t)((pmctl->sdata->pdata->cam_bus_scale_table)->usecase)->vectors->ib ,(uint64_t)((pmctl->sdata->pdata->cam_bus_scale_table)->usecase)->vectors->ab ); 
 		}
 		else if(axi_ctrl->share_ctrl->dual_enabled)
@@ -6697,21 +6926,21 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 		if (!axi_ctrl->share_ctrl->dual_enabled)
 			msm_camio_bus_scale_cfg(
 			pmctl->sdata->pdata->cam_bus_scale_table, S_LIVESHOT);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto start_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	default:
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto start_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	}
 	axi_enable_wm_irq(axi_ctrl->share_ctrl);
 
@@ -6878,7 +7107,7 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 		msm_camera_io_w((
 				0x1 << axi_ctrl->share_ctrl->outpath.out2.ch0),
 				axi_ctrl->share_ctrl->vfebase + VFE_BUS_CMD);
-/* LGE_CHANGE_S, fixed dural recording frame broken issue - 01079884, 2013.1.12, youngil.yun[Start] */
+/*                                                                                                  */
 #if defined(CONFIG_LGE_GK_CAMERA)
 		msm_camera_io_w(0x3, axi_ctrl->share_ctrl->vfebase +
 			vfe32_AXI_WM_CFG[axi_ctrl->share_ctrl->
@@ -6888,7 +7117,7 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 			vfe32_AXI_WM_CFG[axi_ctrl->share_ctrl->
 			outpath.out2.ch0]);
 #endif
-/* LGE_CHANGE_E, fixed dural recording frame broken issue - 01079884, 2013.1.12, youngil.yun[End] */
+/*                                                                                                */
 	}
 	if (axi_ctrl->share_ctrl->current_mode & VFE_OUTPUTS_RDI1) {
 		axi_ctrl->share_ctrl->outpath.out3.capture_cnt =
@@ -6898,7 +7127,7 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 		msm_camera_io_w((
 				0x1 << axi_ctrl->share_ctrl->outpath.out3.ch0),
 				axi_ctrl->share_ctrl->vfebase + VFE_BUS_CMD);
-/* LGE_CHANGE_S, fixed dural recording frame broken issue - 01079884, 2013.1.12, youngil.yun[Start] */
+/*                                                                                                  */
 #if defined(CONFIG_LGE_GK_CAMERA)
 		msm_camera_io_w(0x3, axi_ctrl->share_ctrl->vfebase +
 			vfe32_AXI_WM_CFG[axi_ctrl->share_ctrl->
@@ -6908,7 +7137,7 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 			vfe32_AXI_WM_CFG[axi_ctrl->share_ctrl->
 			outpath.out3.ch0]);
 #endif
-/* LGE_CHANGE_E, fixed dural recording frame broken issue - 01079884, 2013.1.12, youngil.yun[End] */
+/*                                                                                                */
 	}
 	if (axi_ctrl->share_ctrl->current_mode & VFE_OUTPUTS_RDI2) {
 		axi_ctrl->share_ctrl->outpath.out4.capture_cnt =
@@ -6958,12 +7187,12 @@ void axi_start(struct msm_cam_media_controller *pmctl,
 			VFE_REG_UPDATE_CMD);
 	axi_ctrl->share_ctrl->operation_mode |=
 		axi_ctrl->share_ctrl->current_mode;
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 start_ret:
 	mutex_unlock(&axi_ctrl->state_mutex);
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 }
 
 void axi_stop(struct msm_cam_media_controller *pmctl,
@@ -6973,7 +7202,7 @@ void axi_stop(struct msm_cam_media_controller *pmctl,
 	uint32_t vfe_mode =
 	axi_ctrl->share_ctrl->current_mode & ~(VFE_OUTPUTS_RDI0|
 		VFE_OUTPUTS_RDI1|VFE_OUTPUTS_RDI2);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 	mutex_lock(&axi_ctrl->state_mutex);
 	if (!axi_ctrl->share_ctrl->vfebase) {
@@ -6982,7 +7211,7 @@ void axi_stop(struct msm_cam_media_controller *pmctl,
 	}
 	/*printk(KERN_DEBUG "%s : task = %s, pid = %d\n", __func__, current->comm, current->pid);*/
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	switch (vfe_params.cmd_type) {
 	case AXI_CMD_PREVIEW:
 	case AXI_CMD_CAPTURE:
@@ -6994,32 +7223,32 @@ void axi_stop(struct msm_cam_media_controller *pmctl,
 		if (!axi_ctrl->share_ctrl->dual_enabled)
 			msm_camio_bus_scale_cfg(
 			pmctl->sdata->pdata->cam_bus_scale_table, S_PREVIEW);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto stop_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	case AXI_CMD_LIVESHOT:
 		if (!axi_ctrl->share_ctrl->dual_enabled)
 			msm_camio_bus_scale_cfg(
 			pmctl->sdata->pdata->cam_bus_scale_table, S_VIDEO);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto stop_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	default:
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto stop_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	}
 
 	if (axi_ctrl->share_ctrl->stop_immediately) {
@@ -7036,13 +7265,13 @@ void axi_stop(struct msm_cam_media_controller *pmctl,
 				MSG_ID_PREV_STOP_ACK);
 		}
 
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 		goto stop_ret;
 #else
 		return;
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	}
 
 	if (axi_ctrl->share_ctrl->current_mode & VFE_OUTPUTS_RDI0) {
@@ -7080,12 +7309,12 @@ void axi_stop(struct msm_cam_media_controller *pmctl,
 	}
 	msm_camera_io_w_mb(reg_update,
 		axi_ctrl->share_ctrl->vfebase + VFE_REG_UPDATE_CMD);
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 stop_ret:
 	mutex_unlock(&axi_ctrl->state_mutex);
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 }
 
 static int msm_axi_config(struct v4l2_subdev *sd, void __user *arg)
@@ -7395,6 +7624,12 @@ static int msm_axi_config(struct v4l2_subdev *sd, void __user *arg)
 		}
 		axi_abort(axi_ctrl);
 		break;
+/*                                                                                                   */
+	case CMD_AXI_STOP_RECOVERY:
+		pr_err("bus overflow recovery is stopped to avoid IOMMU page faults\n");
+		atomic_set(&fault_recovery, 1);		        
+		break;
+/*                                                                                                   */
 	default:
 		pr_err("%s Unsupported AXI configuration %x ", __func__,
 			cfgcmd.cmd_type);
@@ -7814,11 +8049,11 @@ static int __devinit vfe32_probe(struct platform_device *pdev)
 	vfe32_ctrl->pdev = pdev;
 	/*disable bayer stats by default*/
 	vfe32_ctrl->ver_num.main = VFE_STATS_TYPE_LEGACY;
-/* LGE_CHANGE_S, camera recovery patch, 2013.2.4, jungki.kim[Start] */
+/*                                                                  */
 #ifdef LGE_GK_CAMERA_BSP
 	mutex_init(&axi_ctrl->state_mutex);
 #endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.2.4, jungki.kim[End] */
+/*                                                                */
 	return 0;
 
 vfe32_no_resource:

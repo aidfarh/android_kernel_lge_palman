@@ -35,12 +35,6 @@
 #include "msm_watchdog.h"
 #include "timer.h"
 
-#include <mach/board_lge.h>
-
-#ifdef CONFIG_LGE_PM
-#include <linux/mfd/pm8xxx/pm8921-charger.h>
-#endif
-
 #define WDT0_RST	0x38
 #define WDT0_EN		0x40
 #define WDT0_BARK_TIME	0x4C
@@ -72,7 +66,7 @@ static void *dload_mode_addr;
 
 /* Download mode master kill-switch */
 static int dload_set(const char *val, struct kernel_param *kp);
-static int download_mode = 1;
+static int download_mode = 0;
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
 
@@ -236,7 +230,7 @@ void set_kernel_crash_magic_number(void)
 	else
 		__raw_writel(restart_mode, restart_reason);
 }
-#endif /* CONFIG_LGE_CRASH_HANDLER */
+#endif /*                          */
 
 void msm_restart(char mode, const char *cmd)
 {
@@ -272,30 +266,11 @@ void msm_restart(char mode, const char *cmd)
 			__raw_writel(0x77665500, restart_reason);
 		} else if (!strncmp(cmd, "recovery", 8)) {
 			__raw_writel(0x77665502, restart_reason);
-			/* PC Sync B&R : Add restart reason */
-		} else if (!strncmp(cmd, "--bnr_recovery", 14)) {
-			__raw_writel(0x77665555, restart_reason);
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned long code;
 			code = simple_strtoul(cmd + 4, NULL, 16) & 0xff;
 			__raw_writel(0x6f656d00 | code, restart_reason);
-		}
-#ifdef CONFIG_RTC_PWROFF_ALARM
-		else if(!strncmp(cmd, "rtcboot", 7)){
-			writel(0x6d63c423, restart_reason);
-		}
-#endif
-#ifdef CONFIG_MACH_APQ8064_AWIFI
-		/*[start] Power Off for Testmode(#250-105-1)*/
-		else if(!strncmp(cmd,"diag_power_off",14)) {
-			/*LGE_CHANGE_S 2012-08-11 jungwoo.yun@lge.com */
-			pm8921_usb_pwr_enable(0);
-			/*LGE_CHANGE_E 2012-08-11 jungwoo.yun@lge.com */
-			__raw_writel(0x7766550F, restart_reason);
-		}
-		/*[end] Power Off for Testmode(#250-105-1)*/
-#endif
-		else {
+		} else {
 			__raw_writel(0x77665501, restart_reason);
 		}
 	} else {
@@ -305,27 +280,15 @@ void msm_restart(char mode, const char *cmd)
 	if (in_panic == 1)
 		set_kernel_crash_magic_number();
 reset:
-#endif /* CONFIG_LGE_CRASH_HANDLER */
+#endif /*                          */
 
 	__raw_writel(0, msm_tmr0_base + WDT0_EN);
-#ifndef CONFIG_LGE_BITE_RESET
 	if (!(machine_is_msm8x60_fusion() || machine_is_msm8x60_fusn_ffa())) {
 		mb();
 		__raw_writel(0, PSHOLD_CTL_SU); /* Actually reset the chip */
 		mdelay(5000);
 		pr_notice("PS_HOLD didn't work, falling back to watchdog\n");
 	}
-#endif
-#ifdef CONFIG_LGE_PM
-        pr_notice("check battery fet\n");
-        if(pm8921_chg_batfet_get_ext() > 0 && lge_get_factory_boot())
-        {
-               /* return control to PMIC FSM */
-                pm8921_chg_batfet_set_ext(0);
-                pr_notice("wait release fet\n");
-                mdelay(7000);
-        }
-#endif
 
 	__raw_writel(1, msm_tmr0_base + WDT0_RST);
 	__raw_writel(5*0x31F3, msm_tmr0_base + WDT0_BARK_TIME);

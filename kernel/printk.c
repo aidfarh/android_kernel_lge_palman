@@ -73,11 +73,6 @@ int console_printk[4] = {
 	DEFAULT_CONSOLE_LOGLEVEL,	/* default_console_loglevel */
 };
 
-
-#define LINUX_ORIGINAL_PRINTK_TYPE 0
-#define LGE_DEFAULT_PRINTK_TYPE 1
-int printk_timestamp_type = LGE_DEFAULT_PRINTK_TYPE;
-
 /*
  * Low level drivers may need that to know if they can schedule in
  * their unblank() callback or not. So let's export it.
@@ -1003,10 +998,8 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 			if (printk_time) {
 				/* Add the current time stamp */
-				char tbuf[256], *tp;
+				char tbuf[50], *tp;
 				unsigned tlen;
-				/* LGE_S jinyoun.park@lge.com 20111027 Change kernel timestamp resolution from cpu time to current clock */
-#ifdef CONFIG_LGE_USE_CPU_CLOCK_TIMESTAMP
 				unsigned long long t;
 				unsigned long nanosec_rem;
 
@@ -1015,43 +1008,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 				tlen = sprintf(tbuf, "[%5lu.%06lu] ",
 						(unsigned long) t,
 						nanosec_rem / 1000);
-#else
-				unsigned long long t;
-				unsigned long nanosec_rem;
 
-				struct timespec time;
-				struct tm tmresult;
-
-				if ( printk_timestamp_type == LINUX_ORIGINAL_PRINTK_TYPE ) {
-					t = cpu_clock(printk_cpu);
-					nanosec_rem = do_div(t, 1000000000);
-					tlen = sprintf(tbuf, "[%5lu.%06lu] ",
-							(unsigned long) t,
-							nanosec_rem / 1000);
-				} else if (printk_timestamp_type == LGE_DEFAULT_PRINTK_TYPE ) {
-					t = cpu_clock(printk_cpu);
-					nanosec_rem = do_div(t, 1000000000);
-
-					time = __current_kernel_time();
-					time_to_tm(time.tv_sec,sys_tz.tz_minuteswest * 60* (-1),&tmresult);
-					tlen = sprintf(tbuf, "[%5lu.%06lu / %02d-%02d %02d:%02d:%02d.%03lu] ",
-							(unsigned long) t,
-							nanosec_rem / 1000,
-							tmresult.tm_mon+1,
-							tmresult.tm_mday,
-							tmresult.tm_hour,
-							tmresult.tm_min,
-							tmresult.tm_sec,
-							(unsigned long) time.tv_nsec/1000000);
-				} else {
-					t = cpu_clock(printk_cpu);
-					nanosec_rem = do_div(t, 1000000000);
-					tlen = sprintf(tbuf, "[%5lu.%06lu] ",
-							(unsigned long) t,
-							nanosec_rem / 1000);
-				}
-#endif
-				/* LGE_E jinyoun.park@lge.com 20111027 Change kernel timestamp resolution from cpu time to current clock */
 				for (tp = tbuf; tp < tbuf + tlen; tp++)
 					emit_log_char(*tp);
 				printed_len += tlen;

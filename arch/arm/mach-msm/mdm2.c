@@ -41,10 +41,6 @@
 #include "devices.h"
 #include "clock.h"
 #include "mdm_private.h"
-#ifdef CONFIG_LGE_NFC_SONY_CXD2235AGG
-extern int snfc_poweroff_flag;
-#endif
-
 #define MDM_PBLRDY_CNT		20
 
 static int mdm_debug_mask;
@@ -122,10 +118,6 @@ static void mdm_power_down_common(struct mdm_modem_drv *mdm_drv)
 		msleep(100);
 	}
 
-#ifdef CONFIG_LGE_NFC_SONY_CXD2235AGG
-	snfc_poweroff_flag = 1;
-#endif
-
 	/* Assert the soft reset line whether mdm2ap_status went low or not */
 	gpio_direction_output(mdm_drv->ap2mdm_soft_reset_gpio,
 					soft_reset_direction);
@@ -146,14 +138,6 @@ static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
 {
 	int i;
 	int pblrdy;
-	int kpd_direction_assert = 1,
-		kpd_direction_de_assert = 0;
-
-	if (mdm_drv->pdata->kpd_not_inverted) {
-		kpd_direction_assert = 0;
-		kpd_direction_de_assert = 1;
-	}
-
 	if (mdm_drv->power_on_count != 1) {
 		pr_err("%s:id %d: Calling fn when power_on_count != 1\n",
 			   __func__, mdm_drv->device_id);
@@ -169,9 +153,7 @@ static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
 	 * instead of just de-asserting it. No harm done if the modem was
 	 * powered down.
 	 */
-	if (!mdm_drv->pdata->no_reset_on_first_powerup)
-		mdm_toggle_soft_reset(mdm_drv);
-
+	mdm_toggle_soft_reset(mdm_drv);
 	/* If the device has a kpd pwr gpio then toggle it. */
 	if (GPIO_IS_VALID(mdm_drv->ap2mdm_kpdpwr_n_gpio)) {
 		/* Pull AP2MDM_KPDPWR gpio high and wait for PS_HOLD to settle,
@@ -179,11 +161,9 @@ static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
 		 */
 		pr_debug("%s:id %d: Pulling AP2MDM_KPDPWR gpio high\n",
 				 __func__, mdm_drv->device_id);
-		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio,
-				kpd_direction_assert);
+		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio, 1);
 		msleep(1000);
-		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio,
-				kpd_direction_de_assert);
+		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio, 0);
 	}
 
 	if (!GPIO_IS_VALID(mdm_drv->mdm2ap_pblrdy))

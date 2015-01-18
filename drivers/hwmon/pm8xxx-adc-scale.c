@@ -25,130 +25,8 @@
    and provided to the battery driver in the units desired for
    their framework which is 0.1DegC. True resolution of 0.1DegC
    will result in the below table size to increase by 10 times */
-static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] = {
-#ifdef CONFIG_LGE_PM
-#if defined(CONFIG_MACH_APQ8064_L05E)
-	{  -400,  1728  },
-	{  -390,  1723  },
-	{  -380,  1718  },
-	{  -370,  1713  },
-	{  -360,  1707  },
-	{  -350,  1701  },
-	{  -340,  1695  },
-	{  -330,  1689  },
-	{  -320,  1682  },
-	{  -310,  1674  },
-	{  -300,  1667  },
-	{  -290,  1659  },
-	{  -280,  1650  },
-	{  -270,  1642  },
-	{  -260,  1632  },
-	{  -250,  1623  },
-	{  -240,  1613  },
-	{  -230,  1603  },
-	{  -220,  1592  },
-	{  -210,  1581  },
-	{  -200,  1569  },
-	{  -190,  1557  },
-	{  -180,  1544  },
-	{  -170,  1532  },
-	{  -160,  1518  },
-	{  -150,  1504  },
-	{  -140,  1490  },
-	{  -130,  1476  },
-	{  -120,  1461  },
-	{  -110,  1445  },
-	{  -100,  1430  },
-	{  -90,  1413  },
-	{  -80,  1397  },
-	{  -70,  1380  },
-	{  -60,  1363  },
-	{  -50,  1345  },
-	{  -40,  1328  },
-	{  -30,  1310  },
-	{  -20,  1291  },
-	{  -10,  1273  },
-	{0,	1255},
-	{10,	1236},
-	{20,	1217},
-	{30,	1197},
-	{40,	1178},
-	{50,	1159},
-	{60,	1139},
-	{70,	1120},
-	{80,	1100},
-	{90,	1081},
-	{100,	1061},
-	{110,	1042},
-	{120,	1023},
-	{130,	1004},
-	{140,	985},
-	{150,	966},
-	{160,	947},
-	{170,	929},
-	{180,	910},
-	{190,	892},
-	{200,	874},
-	{210,	857},
-	{220,	840},
-	{230,	823},
-	{240,	806},
-	{250,	790},
-	{260,	774},
-	{270,	758},
-	{280,	743},
-	{290,	728},
-	{300,	713},
-	{310,	699},
-	{320,	685},
-	{330,	671},
-	{340,	658},
-	{350,	645},
-	{360,	632},
-	{370,	620},
-	{380,	608},
-	{390,	597},
-	{400,	585},
-	{410,	574},
-	{420,	564},
-	{430,	553},
-	{440,	544},
-	{450,	534},
-	{460,	525},
-	{470,	515},
-	{480,	507},
-	{490,	498},
-	{500,	490},
-	{510,	482},
-	{520,	474},
-	{530,	467},
-	{540,	460},
-	{550,	453},
-	{560,	446},
-	{570,	440},
-	{580,	433},
-	{590,	427},
-	{600,	421},
-	{610,	416},
-	{620,	410},
-	{630,	405},
-	{640,	400},
-	{650,	395},
-	{660,	390},
-	{670,	386},
-	{680,	382},
-	{690,	377},
-	{700,	373},
-	{710,	369},
-	{720,	365},
-	{730,	362},
-	{740,	358},
-	{750,	355},
-	{760,	351},
-	{770,	348},
-	{780,	345},
-	{790,	342}
-#elif defined (CONFIG_MACH_APQ8064_AWIFI) || (CONFIG_MACH_APQ8064_GVAR_CMCC)
+static struct pm8xxx_adc_map_pt def_adcmap_btm_threshold[] = {
+#ifdef CONFIG_MACH_APQ8064_PALMAN
 /*
  * board speficic thermistor characteristic
  * Rev.C (Real B): pull-up registor 105.0Kohm, series resistor = 16.0Kohm
@@ -264,29 +142,94 @@ static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] = {
 	{770,	339},
 	{780,	336},
 	{790,	333}
-#endif // #if defined(CONFIG_MACH_APQ8064_L05E)
-#endif //#ifdef CONFIG_LGE_PM
-};
-
-#ifdef CONFIG_MACH_APQ8064_GVAR_CMCC
-static const struct pm8xxx_adc_map_pt adcmap_apq_therm[] = {
-/* APQ THERM placeholder for voltage to temperature mapping */
-/* e.g. and for reference only */
-	{2121,	-30},
-	{2085,  -25},
-	{2040,	-20},
-	{1913,	-10},
-	{1732,	0},
-	{1502,	10},
-	{1242,	20},
-	{981,	30},
-	{746,	40},
-	{553,	50},
-	{403,	60},
-};
+#else/* QCT_ORG */
+	{-300,	1642},
+	{-200,	1544},
+	{-100,	1414},
+	{0,	1260},
+	{10,	1244},
+	{20,	1228},
+	{30,	1212},
+	{40,	1195},
+	{50,	1179},
+	{60,	1162},
+	{70,	1146},
+	{80,	1129},
+	{90,	1113},
+	{100,	1097},
+	{110,	1080},
+	{120,	1064},
+	{130,	1048},
+	{140,	1032},
+	{150,	1016},
+	{160,	1000},
+	{170,	985},
+	{180,	969},
+	{190,	954},
+	{200,	939},
+	{210,	924},
+	{220,	909},
+	{230,	894},
+	{240,	880},
+	{250,	866},
+	{260,	852},
+	{270,	838},
+	{280,	824},
+	{290,	811},
+	{300,	798},
+	{310,	785},
+	{320,	773},
+	{330,	760},
+	{340,	748},
+	{350,	736},
+	{360,	725},
+	{370,	713},
+	{380,	702},
+	{390,	691},
+	{400,	681},
+	{410,	670},
+	{420,	660},
+	{430,	650},
+	{440,	640},
+	{450,	631},
+	{460,	622},
+	{470,	613},
+	{480,	604},
+	{490,	595},
+	{500,	587},
+	{510,	579},
+	{520,	571},
+	{530,	563},
+	{540,	556},
+	{550,	548},
+	{560,	541},
+	{570,	534},
+	{580,	527},
+	{590,	521},
+	{600,	514},
+	{610,	508},
+	{620,	502},
+	{630,	496},
+	{640,	490},
+	{650,	485},
+	{660,	281},
+	{670,	274},
+	{680,	267},
+	{690,	260},
+	{700,	254},
+	{710,	247},
+	{720,	241},
+	{730,	235},
+	{740,	229},
+	{750,	224},
+	{760,	218},
+	{770,	213},
+	{780,	208},
+	{790,	203}
 #endif
+};
 
-static const struct pm8xxx_adc_map_pt adcmap_pa_therm[] = {
+static struct pm8xxx_adc_map_pt def_adcmap_pa_therm[] = {
 	{1731,	-30},
 	{1726,	-29},
 	{1721,	-28},
@@ -445,7 +388,7 @@ static const struct pm8xxx_adc_map_pt adcmap_pa_therm[] = {
 	{49,	125}
 };
 
-static const struct pm8xxx_adc_map_pt adcmap_ntcg_104ef_104fb[] = {
+static struct pm8xxx_adc_map_pt def_adcmap_ntcg_104ef_104fb[] = {
 	{696483,	-40960},
 	{649148,	-39936},
 	{605368,	-38912},
@@ -613,6 +556,40 @@ static const struct pm8xxx_adc_map_pt adcmap_ntcg_104ef_104fb[] = {
 	{431,		126976},
 	{419,		128000}
 };
+
+static struct pm8xxx_adc_map adcmap_btm_threshold = {
+	.pt = def_adcmap_btm_threshold,
+	.size = ARRAY_SIZE(def_adcmap_btm_threshold),
+};
+static struct pm8xxx_adc_map adcmap_pa_therm = {
+	.pt = def_adcmap_pa_therm,
+	.size = ARRAY_SIZE(def_adcmap_pa_therm),
+};
+static struct pm8xxx_adc_map adcmap_ntcg_104ef_104fb = {
+	.pt = def_adcmap_ntcg_104ef_104fb,
+	.size = ARRAY_SIZE(def_adcmap_ntcg_104ef_104fb),
+};
+
+void pm8xxx_set_adcmap_btm_threshold(void *pts, int size)
+{
+	adcmap_btm_threshold.pt = pts;
+	adcmap_btm_threshold.size = size;
+}
+EXPORT_SYMBOL(pm8xxx_set_adcmap_btm_threshold);
+
+void pm8xxx_set_adcmap_pa_therm(void *pts, int size)
+{
+	adcmap_pa_therm.pt = pts;
+	adcmap_pa_therm.size = size;
+}
+EXPORT_SYMBOL(pm8xxx_set_adcmap_pa_therm);
+
+void pm8xxx_set_adcmap_ntcg_104ef_104fb(void *pts, int size)
+{
+	adcmap_ntcg_104ef_104fb.pt = pts;
+	adcmap_ntcg_104ef_104fb.size = size;
+}
+EXPORT_SYMBOL(pm8xxx_set_adcmap_ntcg_104ef_104fb);
 
 static int32_t pm8xxx_adc_map_linear(const struct pm8xxx_adc_map_pt *pts,
 		uint32_t tablesize, int32_t input, int64_t *output)
@@ -797,8 +774,8 @@ int32_t pm8xxx_adc_scale_batt_therm(int32_t adc_code,
 			adc_properties, chan_properties);
 
 	return pm8xxx_adc_map_batt_therm(
-			adcmap_btm_threshold,
-			ARRAY_SIZE(adcmap_btm_threshold),
+			adcmap_btm_threshold.pt,
+			adcmap_btm_threshold.size,
 			bat_voltage,
 			&adc_chan_result->physical);
 }
@@ -815,13 +792,14 @@ int32_t pm8xxx_adc_scale_pa_therm(int32_t adc_code,
 			adc_properties, chan_properties);
 
 	return pm8xxx_adc_map_linear(
-			adcmap_pa_therm,
-			ARRAY_SIZE(adcmap_pa_therm),
+			adcmap_pa_therm.pt,
+			adcmap_pa_therm.size,
 			pa_voltage,
 			&adc_chan_result->physical);
 }
 EXPORT_SYMBOL_GPL(pm8xxx_adc_scale_pa_therm);
 
+#ifdef CONFIG_MACH_APQ8064_PALMAN
 int32_t pm8xxx_adc_scale_apq_therm(int32_t adc_code,
 		const struct pm8xxx_adc_properties *adc_properties,
 		const struct pm8xxx_adc_chan_properties *chan_properties,
@@ -835,17 +813,13 @@ int32_t pm8xxx_adc_scale_apq_therm(int32_t adc_code,
 			adc_properties, chan_properties);
 
 	return pm8xxx_adc_map_linear(
-#ifdef CONFIG_MACH_APQ8064_GVAR_CMCC
-			adcmap_apq_therm,
-			ARRAY_SIZE(adcmap_apq_therm),
-#else
-			adcmap_pa_therm,
-			ARRAY_SIZE(adcmap_pa_therm),
-#endif
+			def_adcmap_pa_therm,
+			ARRAY_SIZE(def_adcmap_pa_therm),
 			apq_voltage,
 			&adc_chan_result->physical);
 }
 EXPORT_SYMBOL_GPL(pm8xxx_adc_scale_apq_therm);
+#endif
 
 int32_t pm8xxx_adc_scale_batt_id(int32_t adc_code,
 		const struct pm8xxx_adc_properties *adc_properties,
@@ -925,8 +899,8 @@ int32_t pm8xxx_adc_tdkntcg_therm(int32_t adc_code,
 	xo_thm = pm8xxx_adc_scale_ratiometric_calib(adc_code,
 			adc_properties, chan_properties);
 	xo_thm <<= 4;
-	pm8xxx_adc_map_linear(adcmap_ntcg_104ef_104fb,
-		ARRAY_SIZE(adcmap_ntcg_104ef_104fb),
+	pm8xxx_adc_map_linear(adcmap_ntcg_104ef_104fb.pt,
+		adcmap_ntcg_104ef_104fb.size,
 		xo_thm, &adc_chan_result->physical);
 
 	return 0;
@@ -940,8 +914,8 @@ int32_t pm8xxx_adc_batt_scaler(struct pm8xxx_adc_arb_btm_param *btm_param,
 	int rc;
 
 	rc = pm8xxx_adc_map_linear(
-		adcmap_btm_threshold,
-		ARRAY_SIZE(adcmap_btm_threshold),
+		adcmap_btm_threshold.pt,
+		adcmap_btm_threshold.size,
 		(btm_param->low_thr_temp),
 		&btm_param->low_thr_voltage);
 	if (rc)
@@ -954,8 +928,8 @@ int32_t pm8xxx_adc_batt_scaler(struct pm8xxx_adc_arb_btm_param *btm_param,
 		chan_properties->adc_graph[ADC_CALIB_RATIOMETRIC].adc_gnd;
 
 	rc = pm8xxx_adc_map_linear(
-		adcmap_btm_threshold,
-		ARRAY_SIZE(adcmap_btm_threshold),
+		adcmap_btm_threshold.pt,
+		adcmap_btm_threshold.size,
 		(btm_param->high_thr_temp),
 		&btm_param->high_thr_voltage);
 	if (rc)

@@ -1,7 +1,7 @@
 /*
- *  lge/com_device/input/max1462x.c
+ *  drivers/switch/hds_max1462x.c
  *
- *  LGE 3.5 PI Headset detection driver using max1462x.
+ *  MAX1462x 3.5 PI Headset detection driver using max1462x.
  *
  * Copyright (C) 2008 Google, Inc.
  * Author: Mike Lockwood <lockwood@android.com>
@@ -18,9 +18,6 @@
  * Copyright (C) 2012 LGE, Inc.
  * Author: Park Gyu Hwa <gyuhwa.park@lge.com>
  *
- * Copyright (C) 2013 LGE, Inc.
- * Author: GooYeon Jung <gooyeon.jung@lge.com>
- *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -33,14 +30,13 @@
  */
 
 /* Interface is following;
- * source file is android/frameworks/base/services/java/com/android/server/HeadsetObserver.java
+ * source file is
+ * android/frameworks/base/services/java/com/android/server/HeadsetObserver.java
  * HEADSET_UEVENT_MATCH = "DEVPATH=/sys/devices/virtual/switch/h2w"
  * HEADSET_STATE_PATH = /sys/class/switch/h2w/state
  * HEADSET_NAME_PATH = /sys/class/switch/h2w/name
  */
 
-#ifdef CONFIG_SWITCH_MAX1462X
-#define CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -59,965 +55,688 @@
 #include <linux/wakelock.h>
 #include <linux/platform_data/hds_max1462x.h>
 #include <linux/jiffies.h>
+#include <linux/of_platform.h>
+#include <linux/of_gpio.h>
 #include <linux/mfd/pm8xxx/pm8921.h>
+#include <mach/gpiomux.h>
+
+#define HOOK_MIN		0
+#define HOOK_MAX		150000
+#define VUP_MIN			150000
+#define VUP_MAX			400000
+#define VDOWN_MIN		400000
+#define VDOWN_MAX		600000
+
+#define JACK_NONE               0
+#define JACK_HEADPHONE_3_POLE   1
+#define JACK_HEADPSET_4_POLE    2
+
+/* TODO */
+/* 1. coding for additional excetion case in probe function */
+/* 2. additional sleep related/excetional case  */
 
 
-#undef  LGE_HSD_DEBUG_PRINT /*TODO*/
-#define LGE_HSD_DEBUG_PRINT /*TODO*/
-#undef  LGE_HSD_ERROR_PRINT
-#define LGE_HSD_ERROR_PRINT
-
-#define HOOK_MIN    0
-#define HOOK_MAX    150000
-#define VUP_MIN     150000
-#define VUP_MAX     400000
-#define VDOWN_MIN   400000
-#define VDOWN_MAX   600000
-
-#if defined(LGE_HSD_DEBUG_PRINT)
-#define HSD_DBG(fmt, args...) printk(KERN_INFO "HSD_max1462x[%-18s:%5d] " fmt, __func__, __LINE__, ## args)
-#else
-#define HSD_DBG(fmt, args...) do {} while (0)
-#endif
-
-#if defined(LGE_HSD_ERROR_PRINT)
-#define HSD_ERR(fmt, args...) printk(KERN_ERR "HSD_max1462x[%-18s:%5d] " fmt, __func__, __LINE__, ## args)
-#else
-#define HSD_ERR(fmt, args...) do { } while (0)
-#endif
-
-#ifdef CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
 static struct workqueue_struct *local_max1462x_workqueue;
-#endif
 
 static struct wake_lock ear_hook_wake_lock;
 
-#ifdef CONFIG_LGE_BROADCAST_ONESEG //for 325 BATMAN, L05E MMBI
-static int ear_state = 0;
-extern void isdbt_hw_antenna_switch(int ear_state);
-#endif
-
 struct ear_3button_info_table {
-    unsigned int ADC_HEADSET_BUTTON;
-    int PERMISS_REANGE_MAX;
-    int PERMISS_REANGE_MIN;
-    int PRESS_OR_NOT;
+	unsigned int ADC_HEADSET_BUTTON;
+	int PERMISS_REANGE_MAX;
+	int PERMISS_REANGE_MIN;
+	int PRESS_OR_NOT;
 };
 
-/* This table is only for J1 */
 static struct ear_3button_info_table max1462x_ear_3button_type_data[]={
-    {KEY_MEDIA, HOOK_MAX, HOOK_MIN, 0},
-    {KEY_VOLUMEUP, VUP_MAX, VUP_MIN, 0},
-    {KEY_VOLUMEDOWN, VDOWN_MAX, VDOWN_MIN, 0}
+	{KEY_MEDIA, HOOK_MAX, HOOK_MIN, 0},
+	{KEY_VOLUMEUP, VUP_MAX, VUP_MIN, 0},
+	{KEY_VOLUMEDOWN, VDOWN_MAX, VDOWN_MIN, 0}
 };
 
-struct hsd_info {
-    /* function devices provided by this driver */
-    struct switch_dev sdev;
-    struct input_dev *input;
+struct max1462x_hsd_info {
+	/* function devices provided by this driver */
+	struct switch_dev sdev;
+	struct input_dev *input;
 
-    /* mutex */
-    struct mutex mutex_lock;
+	/* mutex */
+	struct mutex mutex_lock;
 
-    /* h/w configuration : initilized by platform data */
-    unsigned int key_code;                      /* KEY_MEDIA, KEY_VOLUMEUP or KEY_VOLUMEDOWN */
+	/* h/w configuration : initilized by platform data */
 
-    unsigned int gpio_mode;                     /* MODE : high, low, high-z */
-    unsigned int gpio_swd;                      /* SWD : to detect 3pole or 4pole | to detect among hook, volum up or down key */
-    unsigned int gpio_det;                      /* DET : to detect jack inserted or not */
+	/* MODE : high, low, high-z */
+	unsigned int gpio_mic_en;
 
-    unsigned int latency_for_detection;         /* latency for DETIN Debounce Time (in jiffies) */
-    unsigned int latency_for_key;               /* latency for SEND/END Debounce Time (in jiffies) */
+	/* SWD : to detect 3pole or 4pole to detect among hook,
+	 * volum up or down key */
+	unsigned int gpio_key;
 
-    unsigned int adc_mpp_num;                   /* PMIC adc mpp number to read adc level on MIC */
-    unsigned int adc_channel;                   /* PMIC adc channel to read adc level on MIC */
+	/* DET : to detect jack inserted or not */
+	unsigned int gpio_detect;
 
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-    unsigned int external_ldo_mic_bias;         /* GPIO for an external LDO control */
-    void (*set_headset_mic_bias)(int enable);   /* callback function which is initialized while probing */
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
+	unsigned int latency_for_key;
 
-    /* internal variables */
-    unsigned int irq_detect;                    /* irq number of gpio_det */
-    unsigned int irq_key;                       /* irq number of gpio_swd */
+	unsigned int key_code;	/* KEY_MEDIA, KEY_VOLUMEUP or KEY_VOLUMEDOWN */
 
-    /* internal states */
-    atomic_t irq_key_enabled;
-    atomic_t is_3_pole_or_not;
-    atomic_t btn_state;
+	/* irqs */
+	unsigned int irq_detect;	/* detect */
+	unsigned int irq_key;		/* key */
 
-    /* work for detect_work */
-    struct delayed_work work;
-    struct delayed_work work_for_key_pressed;
-    struct delayed_work work_for_key_released;
-};
+	/* ADC Read */
+	unsigned int adc_mpp_num;   /* PMIC adc mpp number to read adc level on MIC */
+	unsigned int adc_channel;   /* PMIC adc channel to read adc level on MIC */
 
-/* status for sdev */
-enum {
-    HEADSET_NO_DEVICE   = 0,
-    HEADSET_WITH_MIC    = (1 << 0),
-    HEADSET_NO_MIC      = (1 << 1),
-};
+	/* internal states */
+	atomic_t irq_key_enabled;
+	atomic_t is_3_pole_or_not;
+	atomic_t btn_state;
 
-/* status for btn_state */
-enum {
-    HEADSET_BTN_INIT = -1,
-    HEADSET_BTN_RELEASED = 0,
-    HEADSET_BTN_PRESSED = 1,
-};
+	/* work for detect_work */
+	struct work_struct work;
+	struct delayed_work work_for_key_pressed;
+	struct delayed_work work_for_key_released;
 
-/* status for is_3_pole_or_not */
-enum {
-    HEADSET_POLE_INIT = -1,
-    HEADSET_POLE_3 = 0,
-    HEADSET_POLE_4 = 1,
+	unsigned char *pdev_name;
 };
 
 enum {
-    FALSE = 0,
-    TRUE = 1,
+	NO_DEVICE   = 0,
+	MAX1642X_HEADSET = (1 << 0),
+	MAX1642X_HEADSET_NO_MIC = (1 << 1),
 };
 
-static ssize_t lge_hsd_print_name(struct switch_dev *sdev, char *buf)
+static ssize_t max1462x_hsd_print_name(struct switch_dev *sdev, char *buf)
 {
-    switch (switch_get_state(sdev)) {
-
-        case HEADSET_NO_DEVICE:
-            return sprintf(buf, "No Headset Device");
-
-        case HEADSET_WITH_MIC:
-            return sprintf(buf, "Headset w/ MIC");
-
-        case HEADSET_NO_MIC:
-            return sprintf(buf, "Headset w/o MIC");
-    }
-
-    return -EINVAL;
+	switch (switch_get_state(sdev)) {
+		case NO_DEVICE:
+			return sprintf(buf, "No Device");
+		case MAX1642X_HEADSET:
+			return sprintf(buf, "Headset");
+		case MAX1642X_HEADSET_NO_MIC:
+			return sprintf(buf, "Headset");
+		default:
+			break;
+	}
+	return -EINVAL;
 }
 
-static ssize_t lge_hsd_print_state(struct switch_dev *sdev, char *buf)
+static ssize_t max1462x_hsd_print_state(struct switch_dev *sdev, char *buf)
 {
-    return sprintf(buf, "%d\n", switch_get_state(sdev));
+	return sprintf(buf, "%d\n", switch_get_state(sdev));
 }
 
-static void button_pressed(struct work_struct *work)
+static void max1462x_button_pressed(struct work_struct *work)
 {
-    struct delayed_work *dwork = container_of(work, struct delayed_work, work);
-    struct hsd_info *hi = container_of(dwork, struct hsd_info, work_for_key_pressed);
+	struct delayed_work *dwork =
+		container_of(work, struct delayed_work, work);
+	struct max1462x_hsd_info *hi =
+		container_of(dwork, struct max1462x_hsd_info,
+				work_for_key_pressed);
+	int acc_read_value = 0;
+	int i, rc;
+	struct ear_3button_info_table *table;
+	int table_size = ARRAY_SIZE(max1462x_ear_3button_type_data);
     struct pm8xxx_adc_chan_result result;
-    struct ear_3button_info_table *table;
 
-    int acc_read_value=0, i=0, rc=0, table_size=ARRAY_SIZE(max1462x_ear_3button_type_data);
-
-    HSD_DBG("button_pressed begin \n");
-
-    if( gpio_cansleep(hi->gpio_det) ) {
-        if( gpio_get_value_cansleep(hi->gpio_det) ) {
-            HSD_ERR("button_pressed but ear jack is plugged out already! just ignore the event.\n");
-            return;
-        }
-    } else {
-        if( gpio_get_value(hi->gpio_det) ) {
-            HSD_ERR("button_pressed but ear jack is plugged out already! just ignore the event.\n");
-            return;
-        }
-    }
-
-	for (i = 0; i < table_size; i++) {
-        rc = pm8xxx_adc_mpp_config_read(hi->adc_mpp_num, hi->adc_channel, &result);
-
-        if (rc < 0) {
-            if (rc == -ETIMEDOUT) {
-                HSD_ERR("button_pressed : adc read timeout[try count:%d]\n", i+1);
-            } else {
-                HSD_ERR("button_pressed : adc read error - rc:%d[try count:%d]\n", rc, i+1);
-            }
-        } else {
-            acc_read_value = (int)result.physical;
-            HSD_DBG("======= acc_read_value - %d [try count:%d] =======\n", (int)result.physical, i+1);
-
-            if( acc_read_value > VDOWN_MAX ) {
-                HSD_DBG("********** read again acc_read_value [try count:%d] **********\n", i+1);
-                continue;
-            }
-
-            // if success, exit from loop
-            break;
-        }
+	if (gpio_get_value(hi->gpio_detect)) {
+		pr_err("%s: hs_pressed but jack plugged out already! "
+		       "ignore event\n",
+			__func__);
+		return;
 	}
 
-    for (i = 0; i < table_size; i++) {
-        table = &max1462x_ear_3button_type_data[i];
-        // [AUDIO_BSP] 20130110, junday.lee, include min value '=' for 1 button earjack (ADC value= 0)
-        if ((acc_read_value <= table->PERMISS_REANGE_MAX)&&(acc_read_value >= table->PERMISS_REANGE_MIN)) {
+	rc = pm8xxx_adc_mpp_config_read(hi->adc_mpp_num, hi->adc_channel, &result);
+	if (rc < 0) {
+		if (rc == -ETIMEDOUT)
+			pr_err("%s: adc read timeout\n",
+				   __func__);
+		else
+			pr_err("%s: adc read error - %d\n",
+				   __func__, rc);
+	} else {
+		acc_read_value = (int)result.physical;
+		pr_debug("%s: acc_read_value - %d\n", __func__, acc_read_value);
+	}
 
-            atomic_set(&hi->btn_state, HEADSET_BTN_PRESSED);
+	pr_debug("%s: hs_pressed!\n", __func__);
+	for (i = 0; i < table_size; i++) {
+		table = &max1462x_ear_3button_type_data[i];
+		/*
+		* include min value '=' for 1 button earjack (ADC value= 0)
+		 */
+		if (acc_read_value > table->PERMISS_REANGE_MAX ||
+		    acc_read_value < table->PERMISS_REANGE_MIN)
+			continue;
 
-            switch(table->ADC_HEADSET_BUTTON){
-                case KEY_MEDIA:
-                    input_report_key(hi->input, KEY_MEDIA, 1);
-                    HSD_DBG("********** KEY_MEDIA **********\n");
-                    break;
-
-                case KEY_VOLUMEUP:
-                    input_report_key(hi->input, KEY_VOLUMEUP, 1);
-                    HSD_DBG("********** KEY_VOLUMEUP **********\n");
-                    break;
-
-                case KEY_VOLUMEDOWN:
-                    input_report_key(hi->input, KEY_VOLUMEDOWN, 1);
-                    HSD_DBG("********** KEY_VOLUMEDOWN **********\n");
-                    break;
-            }
-
-            table->PRESS_OR_NOT = 1;
-            input_sync(hi->input);
-            break;
-        }
-    }
-
-    HSD_DBG("button_pressed end \n");
+		atomic_set(&hi->btn_state, 1);
+		switch (table->ADC_HEADSET_BUTTON) {
+			case  KEY_MEDIA :
+				input_report_key(hi->input, KEY_MEDIA, 1);
+				pr_info("hs_pressed: KEY_MEDIA\n");
+				break;
+			case KEY_VOLUMEUP :
+				input_report_key(hi->input, KEY_VOLUMEUP, 1);
+				pr_info("hs_pressed: KEY_VOLUMEUP\n");
+				break;
+			case KEY_VOLUMEDOWN :
+				input_report_key(hi->input, KEY_VOLUMEDOWN, 1);
+				pr_info("hs_pressed: KEY_VOLUMDOWN\n");
+				break;
+			default:
+				pr_info("hs_pressed: UNDEFINED\n");
+				break;
+		}
+		table->PRESS_OR_NOT = 1;
+		input_sync(hi->input);
+		break;
+	}
 }
 
-static void button_released(struct work_struct *work)
+static void max1462x_button_released(struct work_struct *work)
 {
-    struct delayed_work *dwork = container_of(work, struct delayed_work, work);
-    struct hsd_info *hi = container_of(dwork, struct hsd_info, work_for_key_released);
-    struct ear_3button_info_table *table;
-    int table_size = ARRAY_SIZE(max1462x_ear_3button_type_data);
-    int i;
+	struct delayed_work *dwork =
+		container_of(work, struct delayed_work, work);
+	struct max1462x_hsd_info *hi =
+		container_of(dwork, struct max1462x_hsd_info,
+				work_for_key_released);
+	struct ear_3button_info_table *table;
+	int table_size = ARRAY_SIZE(max1462x_ear_3button_type_data);
+	int i;
 
-    if( gpio_cansleep(hi->gpio_det) ) {
-        if( gpio_get_value_cansleep(hi->gpio_det) ) {
-        //if( gpio_get_value_cansleep(hi->gpio_det) && !(atomic_read(&hi->btn_state) == HEADSET_BTN_PRESSED) ) {
-            HSD_ERR("button_released but ear jack is plugged out already! just ignore the event.\n");
-            return;
-        }
-    } else {
-        if( gpio_get_value(hi->gpio_det) ) {
-        //if( gpio_get_value(hi->gpio_det) && !(atomic_read(&hi->btn_state) == HEADSET_BTN_PRESSED) ) {
-            HSD_ERR("button_released but ear jack is plugged out already! just ignore the event.\n");
-            return;
-        }
-    }
+	if (gpio_get_value(hi->gpio_detect)){
+		pr_warn("%s: hs_released but jack plugged out already! "
+			"ignore event\n",
+			__func__);
+		return;
+	}
 
-    HSD_DBG("======= button_released =======");
+	pr_debug("%s: hs_released!\n", __func__);
+	for (i = 0; i < table_size; i++) {
+		table = &max1462x_ear_3button_type_data[i];
+		if (!table->PRESS_OR_NOT)
+			continue;
 
-    for (i = 0; i < table_size; i++) {
-        table = &max1462x_ear_3button_type_data[i];
-        if (table->PRESS_OR_NOT) {
-            atomic_set(&hi->btn_state, HEADSET_BTN_RELEASED);
-            switch(table->ADC_HEADSET_BUTTON){
-                case  KEY_MEDIA :
-                input_report_key(hi->input, KEY_MEDIA, 0);
-                break;
-            case KEY_VOLUMEUP :
-                input_report_key(hi->input, KEY_VOLUMEUP, 0);
-                break;
-            case KEY_VOLUMEDOWN :
-                input_report_key(hi->input, KEY_VOLUMEDOWN, 0);
-                break;
-            }
-
-            table->PRESS_OR_NOT = 0;
-            input_sync(hi->input);
-            break;
-        }
-    }
+		atomic_set(&hi->btn_state, 0);
+		switch (table->ADC_HEADSET_BUTTON) {
+			case  KEY_MEDIA :
+				input_report_key(hi->input, KEY_MEDIA, 0);
+				pr_info("hs_released: KEY_MEDIA\n");
+				break;
+			case KEY_VOLUMEUP :
+				input_report_key(hi->input, KEY_VOLUMEUP, 0);
+				pr_info("hs_released: KEY_VOLUMEUP\n");
+				break;
+			case KEY_VOLUMEDOWN :
+				input_report_key(hi->input, KEY_VOLUMEDOWN, 0);
+				pr_info("hs_released: KEY_VOLUMEDOWN\n");
+				break;
+			default:
+				pr_info("hs_released: UNDEFINED\n");
+				break;
+		}
+		table->PRESS_OR_NOT = 0;
+		input_sync(hi->input);
+		break;
+	}
 }
 
-static void insert_headset(struct hsd_info *hi)
+static void max1462x_insert_headset(struct max1462x_hsd_info *hi)
 {
-    int earjack_type;
+	int earjack_type;
 
-    HSD_DBG("insert_headset");
+	pr_info("%s\n", __func__);
 
-    // set irq to wake up in sleep mode
-    irq_set_irq_wake(hi->irq_key, 1);
+    /* If you reduce the delay time, it will cause problems. */
+	msleep(40);
 
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-    // set high to an external LDO for mic bias
-    if (hi->set_headset_mic_bias) {
-        hi->set_headset_mic_bias(TRUE);
-    } else if( hi->external_ldo_mic_bias > 0 ) {
-        gpio_cansleep(hi->external_ldo_mic_bias) ?
-            gpio_set_value_cansleep(hi->external_ldo_mic_bias, 1) : gpio_set_value(hi->external_ldo_mic_bias, 1);
-    }
-#endif
-//LGE_CHANGE_E20130710 ilda.jung[Audio] Disable not using GPIO
+	/* Issue : Recognized 3-pole after reboot from 4-pole earjack plug. */
 
-    // set mode pin high
-    gpio_direction_output(hi->gpio_mode, 1);
-    msleep(25);
+	/* check if 3-pole or 4-pole
+	 * 1. read gpio_key
+	 * 2. check if 3-pole or 4-pole
+	 * 3-1. NOT regiter irq with gpio_key if 3-pole. complete.
+	 * 3-2. regiter irq with gpio_key if 4-pole
+	 * 4. read MPP6 and decide a pressed key when interrupt occurs
+	 */
+	earjack_type = gpio_get_value(hi->gpio_key);
+	if (earjack_type == 1) {
+		pr_debug("%s: 4 polarity earjack\n", __func__);
+		atomic_set(&hi->is_3_pole_or_not, 0);
 
-    /* check if 3-pole or 4-pole
-    * 1. read gpio_swd
-    * 2. check if 3-pole or 4-pole
-    * 3-1. NOT regiter irq with gpio_swd if 3-pole. complete.
-    * 3-2. regiter irq with gpio_swd if 4-pole
-    * 4. read MPP1 and decide a pressed key when interrupt occurs
-    */
+		mutex_lock(&hi->mutex_lock);
+		switch_set_state(&hi->sdev, MAX1642X_HEADSET);
+		input_report_switch(hi->input, SW_HEADPHONE_INSERT, 1);
+		input_report_switch(hi->input, SW_MICROPHONE_INSERT, 1);
+		input_sync(hi->input);
+		mutex_unlock(&hi->mutex_lock);
 
-    /* 1. read gpio_swd */
-    if( gpio_cansleep(hi->gpio_swd) )
-        earjack_type = gpio_get_value_cansleep(hi->gpio_swd);
-    else
-        earjack_type = gpio_get_value(hi->gpio_swd);
+		if (!atomic_read(&hi->irq_key_enabled)) {
+			pr_debug("%s: irq_key_enabled = FALSE, key IRQ = %d\n",
+				__func__, hi->irq_key);
+			enable_irq(hi->irq_key);
+			atomic_set(&hi->irq_key_enabled, true);
+                        enable_irq_wake(hi->irq_key);
+		}
+	} else {
+		pr_debug("%s; 3 polarity earjack\n", __func__);
+		atomic_set(&hi->is_3_pole_or_not, 1);
 
-    /* 2. check if 3-pole or 4-pole */
-    if ( earjack_type == HEADSET_POLE_4 ) {// high
-        HSD_DBG("======= 4 polarity earjack =======");
+		mutex_lock(&hi->mutex_lock);
+		switch_set_state(&hi->sdev, MAX1642X_HEADSET_NO_MIC);
+		input_report_switch(hi->input, SW_HEADPHONE_INSERT, 1);
+		input_sync(hi->input);
+		mutex_unlock(&hi->mutex_lock);
 
-        atomic_set(&hi->is_3_pole_or_not, HEADSET_POLE_4);
-
-        mutex_lock(&hi->mutex_lock);
-        switch_set_state(&hi->sdev, HEADSET_WITH_MIC);
-        mutex_unlock(&hi->mutex_lock);
-
-        if (!atomic_read(&hi->irq_key_enabled)) {
-            unsigned long irq_flags;
-            HSD_DBG("irq_key_enabled = enable");
-
-            local_irq_save(irq_flags);
-            enable_irq(hi->irq_key);
-            local_irq_restore(irq_flags);
-
-            atomic_set(&hi->irq_key_enabled, TRUE);
-        }
-
-        // set mode pin high
-#if 1
-        //gpio_direction_output(hi->gpio_mode, 1);
-#else
-        gpio_tlmm_config(           // GPIOMUX_FUNC_GPIO
-            GPIO_CFG(hi->gpio_mode, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_UP, 0xf),
-                GPIO_CFG_ENABLE);
-#endif
-
-        input_report_switch(hi->input, SW_HEADPHONE_INSERT, 1);
-        input_report_switch(hi->input, SW_MICROPHONE_INSERT, 1);
-        input_sync(hi->input);
-    } else {// low
-        HSD_DBG("********** 3 polarity earjack **********");
-
-        atomic_set(&hi->is_3_pole_or_not, HEADSET_POLE_3);
-
-        mutex_lock(&hi->mutex_lock);
-        switch_set_state(&hi->sdev, HEADSET_NO_MIC);
-        mutex_unlock(&hi->mutex_lock);
-
-        irq_set_irq_wake(hi->irq_key, 0);
-
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-        // set low to an external LDO for mic bias
-        if (hi->set_headset_mic_bias) {
-            hi->set_headset_mic_bias(FALSE);
-        } else if( hi->external_ldo_mic_bias > 0 ) {
-            gpio_cansleep(hi->external_ldo_mic_bias) ?
-                gpio_set_value_cansleep(hi->external_ldo_mic_bias, 0) : gpio_set_value(hi->external_ldo_mic_bias, 0);
-        }
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
-
-        // set mode pin high-z
-#if 1
-        gpio_direction_input(hi->gpio_mode);
-#else
-        gpio_tlmm_config(           // GPIOMUX_FUNC_GPIO
-            GPIO_CFG(hi->gpio_mode, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),
-              GPIO_CFG_ENABLE);
-#endif
-
-        input_report_switch(hi->input, SW_HEADPHONE_INSERT, 1);
-        input_sync(hi->input);
-    }
+		if (atomic_read(&hi->irq_key_enabled)) {
+			pr_debug("%s: irq_key_enabled = TRUE, key IRQ = %d\n",
+				__func__, hi->irq_key);
+			disable_irq(hi->irq_key);
+			atomic_set(&hi->irq_key_enabled, false);
+                        disable_irq_wake(hi->irq_key);
+		}
+	}
 }
 
-static void remove_headset(struct hsd_info *hi)
+static void max1462x_remove_headset(struct max1462x_hsd_info *hi)
 {
-    int has_mic = switch_get_state(&hi->sdev);
+	int earjack_type = JACK_NONE;
 
-    HSD_DBG("remove_headset");
+	pr_info("%s\n", __func__);
 
-    atomic_set(&hi->is_3_pole_or_not, HEADSET_POLE_INIT);
-    mutex_lock(&hi->mutex_lock);
-    switch_set_state(&hi->sdev, HEADSET_NO_DEVICE);
-    mutex_unlock(&hi->mutex_lock);
+	if (atomic_read(&hi->is_3_pole_or_not))
+		earjack_type = JACK_HEADPHONE_3_POLE;
+	else
+		earjack_type = JACK_HEADPSET_4_POLE;
 
-    if (atomic_read(&hi->irq_key_enabled)) {
-        unsigned long irq_flags;
+	atomic_set(&hi->is_3_pole_or_not, 1);
 
-        local_irq_save(irq_flags);
-        disable_irq(hi->irq_key);
-        local_irq_restore(irq_flags);
-        atomic_set(&hi->irq_key_enabled, FALSE);
-    }
+	mutex_lock(&hi->mutex_lock);
+	switch_set_state(&hi->sdev, NO_DEVICE);
+	input_report_switch(hi->input, SW_HEADPHONE_INSERT, 0);
+	if (earjack_type == JACK_HEADPSET_4_POLE)
+		input_report_switch(hi->input, SW_MICROPHONE_INSERT, 0);
+	input_sync(hi->input);
+	mutex_unlock(&hi->mutex_lock);
 
-    if( atomic_read(&hi->btn_state) == HEADSET_BTN_PRESSED )
-#ifdef	CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
-        queue_delayed_work(local_max1462x_workqueue, &(hi->work_for_key_released), hi->latency_for_key );
-#else
-        schedule_delayed_work(&(hi->work_for_key_released), hi->latency_for_key );
-#endif
+	if (atomic_read(&hi->irq_key_enabled)) {
+		disable_irq(hi->irq_key);
+		atomic_set(&hi->irq_key_enabled, false);
+                disable_irq_wake(hi->irq_key);
+	}
 
-    input_report_switch(hi->input, SW_HEADPHONE_INSERT, 0);
-
-    if (has_mic == HEADSET_WITH_MIC) {
-        irq_set_irq_wake(hi->irq_key, 0);
-        input_report_switch(hi->input, SW_MICROPHONE_INSERT, 0);
-
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-        // set low to an external LDO for mic bias
-        if (hi->set_headset_mic_bias) {
-            hi->set_headset_mic_bias(FALSE);
-        } else if( hi->external_ldo_mic_bias > 0 ) {
-            gpio_cansleep(hi->external_ldo_mic_bias) ?
-                gpio_set_value_cansleep(hi->external_ldo_mic_bias, 0) : gpio_set_value(hi->external_ldo_mic_bias, 0);
-        }
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
-    }
-
-    input_sync(hi->input);
+	if (atomic_read(&hi->btn_state)) {
+		queue_delayed_work(local_max1462x_workqueue,
+			&(hi->work_for_key_released), hi->latency_for_key);
+	}
 }
 
-static void detect_work(struct work_struct *work)
+static void max1462x_detect_work(struct work_struct *work)
 {
-    int state = 0;
-    struct delayed_work *dwork = container_of(work, struct delayed_work, work);
-	struct hsd_info *hi = container_of(dwork, struct hsd_info, work);
+	int state;
+	struct max1462x_hsd_info *hi =
+        container_of(work, struct max1462x_hsd_info, work);
 
-    HSD_DBG("detect_work");
+	pr_debug("%s\n", __func__);
 
-    if( gpio_cansleep(hi->gpio_det) )
-        state = gpio_get_value_cansleep(hi->gpio_det);
-    else
-        state = gpio_get_value(hi->gpio_det);
+	state = gpio_get_value(hi->gpio_detect);
 
-    if( state == 1 ) {  // gpio_det high - jack out
-        if( switch_get_state(&hi->sdev) != HEADSET_NO_DEVICE ) {
-            HSD_DBG("======= LGE headset removing =======");
-            remove_headset(hi);
-#ifdef CONFIG_LGE_BROADCAST_ONESEG
-            isdbt_hw_antenna_switch(0);
-            ear_state = 0;
-#endif
-        } else {
-            HSD_DBG("err_invalid_state state = %d\n", state);
-        }
-    } else {    // gpio_det low - jack in
-        if( switch_get_state(&hi->sdev) == HEADSET_NO_DEVICE ) {
-            HSD_DBG("********** LGE headset inserting **********");
-            insert_headset(hi);
-
-#ifdef CONFIG_LGE_BROADCAST_ONESEG
-            isdbt_hw_antenna_switch(1);
-            ear_state = 1;
-#endif
-        } else {
-            HSD_DBG("err_invalid_state state = %d\n", state);
-        }
-    }
+	if (state == 1) {
+		if (switch_get_state(&hi->sdev) != NO_DEVICE)
+			max1462x_remove_headset(hi);
+		 else
+			pr_debug("%s: err_invalid_state state = %d\n",
+				__func__, state);
+	} else {
+		if (switch_get_state(&hi->sdev) == NO_DEVICE)
+			max1462x_insert_headset(hi);
+		else
+			pr_debug("%s: err_invalid_state state = %d\n",
+				__func__, state);
+	}
 }
 
-#ifdef CONFIG_LGE_BROADCAST_ONESEG //for 325 BATMAN, L05E MMBI
-int check_ear_state(void)
+static irqreturn_t max1462x_earjack_det_irq_handler(int irq, void *dev_id)
 {
-    return ear_state;
-}
-EXPORT_SYMBOL(check_ear_state);
-#endif
+	struct max1462x_hsd_info *hi = (struct max1462x_hsd_info *) dev_id;
 
-static irqreturn_t earjack_det_irq_handler(int irq, void *dev_id)
+	pr_debug("%s\n", __func__);
+
+	wake_lock_timeout(&ear_hook_wake_lock, 2 * HZ);
+	queue_work(local_max1462x_workqueue, &(hi->work));
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t max1462x_button_irq_handler(int irq, void *dev_id)
 {
-    struct hsd_info *hi = (struct hsd_info *) dev_id;
+	struct max1462x_hsd_info *hi = (struct max1462x_hsd_info *) dev_id;
+	int value;
 
-    wake_lock_timeout(&ear_hook_wake_lock, 2 * HZ);
+	pr_debug("%s\n", __func__);
 
-    HSD_DBG("earjack_det_irq_handler");
+	wake_lock_timeout(&ear_hook_wake_lock, 2 * HZ);
+	value = gpio_get_value(hi->gpio_key);
+	pr_debug("gpio_get_value(hi->gpio_key) : %d\n", value);
 
-#ifdef CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
-    queue_delayed_work(local_max1462x_workqueue, &(hi->work), hi->latency_for_detection);
+	if (value)
+		queue_delayed_work(local_max1462x_workqueue,
+			&(hi->work_for_key_released), hi->latency_for_key);
+	else
+		queue_delayed_work(local_max1462x_workqueue,
+			&(hi->work_for_key_pressed), hi->latency_for_key);
 
-#else
-    schedule_delayed_work(&(hi->work), hi->latency_for_detection);
-#endif
-    return IRQ_HANDLED;
+	return IRQ_HANDLED;
 }
 
-static irqreturn_t button_irq_handler(int irq, void *dev_id)
+static void max1462x_parse_dt(struct device *dev, struct max1462x_platform_data *pdata)
 {
-    struct hsd_info *hi = (struct hsd_info *) dev_id;
+	struct device_node *np = dev->of_node;
 
-    int value;
-
-    wake_lock_timeout(&ear_hook_wake_lock, 2 * HZ);
-
-    HSD_DBG("button_irq_handler");
-
-    // low:pressed, high:released
-    if( gpio_cansleep(hi->gpio_swd) )
-        value = gpio_get_value_cansleep(hi->gpio_swd);
-    else
-        value = gpio_get_value(hi->gpio_swd);
-
-    HSD_DBG("======= hi->gpio_swd : %d =======", value);
-
-    if (value)
-        queue_delayed_work(local_max1462x_workqueue, &(hi->work_for_key_released), hi->latency_for_key );
-    else
-        queue_delayed_work(local_max1462x_workqueue, &(hi->work_for_key_pressed), hi->latency_for_key );
-
-    return IRQ_HANDLED;
+	pdata->gpio_detect = of_get_named_gpio_flags(np,
+			"max1462x,gpio_detect", 0, NULL);
+	pdata->gpio_key = of_get_named_gpio_flags(np,
+			"max1462x,gpio_key", 0, NULL);
+	pdata->gpio_mic_en = of_get_named_gpio_flags(np,
+			"max1462x,gpio_mic_en", 0, NULL);
+	pdata->key_code = 0;
+	pdata->switch_name = "h2w";
+	pdata->keypad_name = "hs_detect";
 }
 
-static int lge_hsd_probe(struct platform_device *pdev)
+static int max1462x_hsd_probe(struct platform_device *pdev)
 {
-    int ret = 0;
-    struct max1462x_platform_data *pdata = pdev->dev.platform_data;
+	struct max1462x_platform_data *pdata = pdev->dev.platform_data;
+	struct max1462x_hsd_info *hi;
+	int acc_read_value = 0;
+	int i;
+	int adc_read_count = 3;
+	int ret = 0;
+	struct pm8xxx_adc_chan_result result;
 
-    struct hsd_info *hi;
+	pr_debug("%s\n", __func__);
 
-    HSD_DBG("lge_hsd_probe");
+	if (pdev->dev.of_node) {
+		pdata = devm_kzalloc(&pdev->dev,
+				sizeof(struct max1462x_platform_data),
+				GFP_KERNEL);
+		if (!pdata) {
+			pr_err("%s: Failed to allocate memory\n", __func__);
+			return -ENOMEM;
+		}
+		pdev->dev.platform_data = pdata;
+		max1462x_parse_dt(&pdev->dev, pdata);
+	} else {
+		pdata = pdev->dev.platform_data;
+		if (!pdata) {
+			pr_err("%s: No pdata\n", __func__);
+			return -ENODEV;
+		}
+	}
 
-    hi = kzalloc(sizeof(struct hsd_info), GFP_KERNEL);
+	local_max1462x_workqueue = create_workqueue("max1462x");
+	if (!local_max1462x_workqueue) {
+		pr_err("%s: Failed to create_workqueue\n", __func__);
+		return -ENOMEM;
+	}
 
-    if (NULL == hi) {
-        HSD_ERR("Failed to allloate headset per device info\n");
-        return -ENOMEM;
-    }
+	wake_lock_init(&ear_hook_wake_lock, WAKE_LOCK_SUSPEND, "ear_hook");
 
-    platform_set_drvdata(pdev, hi);
+	hi = kzalloc(sizeof(struct max1462x_hsd_info), GFP_KERNEL);
+	if (!hi) {
+		pr_err("%s: Failed to allloate memory for device info\n",
+				__func__);
+		ret = -ENOMEM;
+		goto err_kzalloc;
+	}
 
-    // initialize internal variables
-    atomic_set(&hi->btn_state, HEADSET_BTN_INIT);
-    atomic_set(&hi->is_3_pole_or_not, HEADSET_POLE_INIT);
+	hi->key_code = pdata->key_code;
 
-    // set key code
-    hi->key_code = pdata->key_code; // KEY_RESERVED(0), KEY_MEDIA(226), KEY_VOLUMEUP(115) or KEY_VOLUMEDOWN(114)
+	platform_set_drvdata(pdev, hi);
 
-    // set GPIO number for each pin
-    hi->gpio_mode = pdata->gpio_mode;
-    hi->gpio_det = pdata->gpio_det;
-    hi->gpio_swd = pdata->gpio_swd;
+	atomic_set(&hi->btn_state, 0);
+	atomic_set(&hi->is_3_pole_or_not, 1);
 
-    // set delayed time for latency
-    hi->latency_for_detection = msecs_to_jiffies(pdata->latency_for_detection);
-    HSD_DBG("jiffies of hi->latency_for_detection : %u \n", hi->latency_for_detection);
+	hi->gpio_mic_en = pdata->gpio_mic_en;
+	hi->gpio_detect = pdata->gpio_detect;
+	hi->gpio_key = pdata->gpio_key;
 
-    hi->latency_for_key = msecs_to_jiffies(pdata->latency_for_key);
-    HSD_DBG("jiffies of hi->latency_for_key : %u \n", hi->latency_for_key);
+	hi->latency_for_key = msecs_to_jiffies(50); /* convert ms to jiffies */
+	mutex_init(&hi->mutex_lock);
+	INIT_WORK(&hi->work, max1462x_detect_work);
+	INIT_DELAYED_WORK(&hi->work_for_key_pressed, max1462x_button_pressed);
+	INIT_DELAYED_WORK(&hi->work_for_key_released, max1462x_button_released);
 
-    hi->adc_mpp_num = pdata->adc_mpp_num;
-    HSD_DBG("hi->adc_mpp_num : %u \n", hi->adc_mpp_num);
+	/* init gpio_mic_en & set default value */
+	ret = gpio_request_one(hi->gpio_mic_en, GPIOF_OUT_INIT_HIGH,
+			"gpio_mic_en");
+	if (ret < 0) {
+		pr_err("%s: Failed to configure gpio%d(gpio_mic_en)n",
+			__func__, hi->gpio_mic_en);
+		goto err_gpio_mic_en;
+	}
+	pr_debug("gpio_get_value_cansleep(hi->gpio_mic_en)=%d\n",
+		gpio_get_value_cansleep(hi->gpio_mic_en));
 
-    hi->adc_channel = pdata->adc_channel;
-    HSD_DBG("hi->adc_channel : %u \n", hi->adc_channel);
+	/* init gpio_detect */
+	ret = gpio_request_one(hi->gpio_detect, GPIOF_IN, "gpio_detect");
+	if (ret < 0) {
+		pr_err("%s: Failed to configure gpio%d(gpio_det)\n",
+			__func__, hi->gpio_detect);
+		goto err_gpio_detect;
+	}
 
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-    // set gpio for an external LDO control
-    if( pdata->external_ldo_mic_bias > 0 ) {
-        hi->external_ldo_mic_bias = pdata->external_ldo_mic_bias;
-        HSD_DBG("control an external LDO(GPIO# %u) for MIC BIAS", hi->external_ldo_mic_bias);
-    } else {
-        hi->external_ldo_mic_bias = 0;
-        HSD_DBG("don't control an external LDO for MIC");
-    }
+	/* init gpio_key */
+	ret = gpio_request_one(hi->gpio_key, GPIOF_IN, "gpio_key");
+	if (ret < 0) {
+		pr_err("%s: Failed to configure gpio%d(gpio_key)\n",
+			__func__, hi->gpio_key);
+		goto err_gpio_key;
+	}
 
-    // set callback function for an external LDO control
-    if( pdata->set_headset_mic_bias!= NULL ) {
-        hi->set_headset_mic_bias = pdata->set_headset_mic_bias;
-        HSD_DBG("set a func pointer of an external LDO for MIC");
-    } else {
-        pdata->set_headset_mic_bias = NULL;
-        HSD_DBG("don't set a func pointer of an external LDO for MIC");
-    }
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
+	ret = gpio_to_irq(hi->gpio_detect);
+	if (ret < 0) {
+		pr_err("%s: Failed to get interrupt number\n", __func__);
+		goto err_irq_detect;
+	}
+	hi->irq_detect = ret;
+	pr_debug("%s: hi->irq_detect = %d\n", __func__, hi->irq_detect);
 
-    mutex_init(&hi->mutex_lock);
+	ret = request_threaded_irq(hi->irq_detect, NULL,
+				max1462x_earjack_det_irq_handler,
+				IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING,
+				pdev->name, hi);
+	if (ret < 0) {
+		pr_err("%s: failed to request button irq\n", __func__);
+		goto err_irq_detect_request;
+	}
 
-    INIT_DELAYED_WORK(&hi->work, detect_work);
-    INIT_DELAYED_WORK(&hi->work_for_key_pressed, button_pressed);
-    INIT_DELAYED_WORK(&hi->work_for_key_released, button_released);
+	ret = enable_irq_wake(hi->irq_detect);
+	if (ret < 0) {
+		pr_err("%s: Failed to set gpio_detect interrupt wake\n",
+			__func__);
+		goto err_irq_detect_wake;
+	}
 
+	/* initialize irq of gpio_key */
+	ret = gpio_to_irq(hi->gpio_key);
+	if (ret < 0) {
+		pr_err("%s: Failed to get interrupt number\n", __func__);
+		goto err_irq_key;
+	}
+	hi->irq_key = ret;
+	pr_debug("%s: hi->irq_key = %d\n", __func__, hi->irq_key);
 
-    // initialize gpio_mode
-    // set gpio_mode high as a default, and set mode among high,low,high-Z after deciding 3 or 4 polarity
-    ret = gpio_request(hi->gpio_mode, "gpio_mode");
-    if (ret < 0) {
-        HSD_ERR("Failed to configure gpio%u (gpio_mode) gpio_request\n", hi->gpio_mode);
-        goto error_01;
-    }
+	ret = request_threaded_irq(hi->irq_key, NULL,
+			max1462x_button_irq_handler,
+			IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING,
+			pdev->name, hi);
+	if (ret < 0) {
+		pr_err("%s: failed to request button irq\n", __func__);
+		goto err_irq_key_request;
+	}
 
-    ret = gpio_direction_output(hi->gpio_mode, 1);
-    if (ret < 0) {
-        HSD_ERR("Failed to configure gpio%d (gpio_mode) gpio_direction_input\n", hi->gpio_mode);
-        goto error_01;
-    }
+	disable_irq(hi->irq_key);
+	atomic_set(&hi->irq_key_enabled, false);
 
-    // initialize gpio_det
-    ret = gpio_request(hi->gpio_det, "gpio_det");
-    if (ret < 0) {
-        HSD_ERR("Failed to configure gpio%u (gpio_det) gpio_request\n", hi->gpio_det);
-        goto error_02;
-    }
+	/* initialize switch device */
+	hi->sdev.name = pdata->switch_name;
+	hi->sdev.print_state = max1462x_hsd_print_state;
+	hi->sdev.print_name = max1462x_hsd_print_name;
 
-    ret = gpio_direction_input(hi->gpio_det);
-    if (ret < 0) {
-        HSD_ERR("Failed to configure gpio%u (gpio_det) gpio_direction_input\n", hi->gpio_det);
-        goto error_02;
-    }
+	ret = switch_dev_register(&hi->sdev);
+	if (ret < 0) {
+		pr_err("%s: Failed to register switch device\n", __func__);
+		goto err_switch_dev_register;
+	}
 
-    // initialize gpio_swd
-    ret = gpio_request(hi->gpio_swd, "gpio_swd");
-    if (ret < 0) {
-        HSD_ERR("Failed to configure gpio%u (gpio_swd) gpio_request\n", hi->gpio_swd);
-        goto error_03;
-    }
+	/* initialize input device */
+	hi->input = input_allocate_device();
+	if (!hi->input) {
+		pr_err("%s: Failed to allocate input device\n", __func__);
+		ret = -ENOMEM;
+		goto err_input_allocate_device;
+	}
 
-    ret = gpio_direction_input(hi->gpio_swd);
-    if (ret < 0) {
-        HSD_ERR("Failed to configure gpio%u (gpio_swd) gpio_direction_input\n", hi->gpio_swd);
-        goto error_03;
-    }
+	hi->input->name = pdata->keypad_name;
+	hi->input->id.vendor    = 0x0001;
+	hi->input->id.product   = 1;
+	hi->input->id.version   = 1;
 
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-    // initialize external_ldo_mic_bias
-    if( hi->external_ldo_mic_bias > 0 ) {
-        ret = gpio_request(hi->external_ldo_mic_bias, "external_ldo_mic_bias");
-        if (ret < 0) {
-            HSD_ERR("Failed to configure gpio%u (external_ldo_mic_bias) gpio_request\n", hi->external_ldo_mic_bias);
-            goto error_04;
-        }
+	/* initialize mpp and adc channel */
+	hi->adc_mpp_num = pdata->adc_mpp_num;
+	hi->adc_channel = pdata->adc_channel;
 
-        ret = gpio_direction_output(hi->external_ldo_mic_bias, 0);
-        if (ret < 0) {
-            HSD_ERR("Failed to configure gpio%u (external_ldo_mic_bias) gpio_direction_input\n", hi->external_ldo_mic_bias);
-            goto error_04;
-        }
+	/* headset tx noise */
+	for (i = 0; i < adc_read_count; i++) {
+		ret = pm8xxx_adc_mpp_config_read(hi->adc_mpp_num, hi->adc_channel, &result);
+		if (ret < 0) {
+			if (ret == -ETIMEDOUT)
+				pr_warn("%s: warning: adc read timeout \n",
+						__func__);
+			else
+				pr_warn("%s: warning: adc read error - %d\n",
+						__func__, ret);
+		} else {
+			acc_read_value = (int)result.physical;
+			pr_info("%s: acc_read_value - %d\n", __func__,
+				acc_read_value);
+			break;
+		}
+	}
 
-        HSD_DBG("hi->external_ldo_mic_bias value = %d \n",
-            gpio_cansleep(hi->external_ldo_mic_bias) ?
-                gpio_get_value_cansleep(hi->external_ldo_mic_bias) : gpio_get_value(hi->external_ldo_mic_bias));
-    }
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
+	set_bit(EV_SYN, hi->input->evbit);
+	set_bit(EV_KEY, hi->input->evbit);
+	set_bit(EV_SW, hi->input->evbit);
+	set_bit(hi->key_code, hi->input->keybit);
+	set_bit(SW_HEADPHONE_INSERT, hi->input->swbit);
+	set_bit(SW_MICROPHONE_INSERT, hi->input->swbit);
 
-    /* initialize irq of detection */
-    hi->irq_detect = gpio_to_irq(hi->gpio_det);
+	input_set_capability(hi->input, EV_KEY, KEY_MEDIA);
+	input_set_capability(hi->input, EV_KEY, KEY_VOLUMEUP);
+	input_set_capability(hi->input, EV_KEY, KEY_VOLUMEDOWN);
+	input_set_capability(hi->input, EV_SW, SW_HEADPHONE_INSERT);
+	input_set_capability(hi->input, EV_SW, SW_MICROPHONE_INSERT);
 
-    HSD_DBG("hi->irq_detect = %d\n", hi->irq_detect);
+	ret = input_register_device(hi->input);
+	if (ret < 0) {
+		pr_err("%s: Failed to register input device\n", __func__);
+		goto err_input_register_device;
+	}
 
-    if (hi->irq_detect < 0) {
-        HSD_ERR("Failed to get interrupt number\n");
-        ret = hi->irq_detect;
-        goto error_05;
-    }
+	/* to detect in initialization with eacjack insertion */
+	if (!(gpio_get_value(hi->gpio_detect)))
+		queue_work(local_max1462x_workqueue, &(hi->work));
 
-    ret = request_threaded_irq(hi->irq_detect, NULL, earjack_det_irq_handler,
-        IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, pdev->name, hi);
+	return ret;
 
-    if (ret) {
-        HSD_ERR("failed to request button irq");
-        goto error_05;
-    }
-
-    ret = irq_set_irq_wake(hi->irq_detect, 1);
-    if (ret < 0) {
-        HSD_ERR("Failed to set irq_detect interrupt wake\n");
-        goto error_05;
-    }
-
-    /* initialize irq of gpio_key */
-    hi->irq_key = gpio_to_irq(hi->gpio_swd);
-
-    HSD_DBG("hi->irq_key = %d\n", hi->irq_key);
-
-    if (hi->irq_key < 0) {
-        HSD_ERR("Failed to get interrupt number\n");
-        ret = hi->irq_key;
-        goto error_06;
-    }
-
-    ret = request_threaded_irq(hi->irq_key, NULL, button_irq_handler,
-        IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, pdev->name, hi);
-
-    if (ret) {
-        HSD_ERR("failed to request button irq");
-        goto error_06;
-    }
-
-    disable_irq(hi->irq_key);
-
-#if 0
-    ret = irq_set_irq_wake(hi->irq_key, 1);
-    if (ret < 0) {
-        HSD_ERR("Failed to set irq_key interrupt wake\n");
-        goto error_06;
-    }
-#endif
-
-    /* initialize switch device */
-    hi->sdev.name = pdata->switch_name;
-    hi->sdev.print_state = lge_hsd_print_state;
-    hi->sdev.print_name = lge_hsd_print_name;
-
-    ret = switch_dev_register(&hi->sdev);
-    if (ret < 0) {
-        HSD_ERR("Failed to register switch device\n");
-        goto error_06;
-    }
-
-    /* initialize input device */
-    hi->input = input_allocate_device();
-    if (!hi->input) {
-        HSD_ERR("Failed to allocate input device\n");
-        ret = -ENOMEM;
-        goto error_07;
-    }
-
-    hi->input->name = pdata->keypad_name;
-
-    hi->input->id.vendor    = 0x0001;
-    hi->input->id.product   = 1;
-    hi->input->id.version   = 1;
-
-    // [START] // headset tx noise
-    {
-        struct pm8xxx_adc_chan_result result;
-        int acc_read_value = 0;
-        int i, rc;
-        int count = 3;
-
-        for (i = 0; i < count; i++)
-        {
-            rc = pm8xxx_adc_mpp_config_read(hi->adc_mpp_num, hi->adc_channel, &result);
-
-            if (rc < 0)
-            {
-                if (rc == -ETIMEDOUT) {
-                    HSD_ERR("[DEBUG]adc read timeout \n");
-                } else {
-                    HSD_ERR("[DEBUG]adc read error - %d\n", rc);
-                }
-            }
-            else
-            {
-                acc_read_value = (int)result.physical;
-                HSD_DBG("%s: acc_read_value - %d\n", __func__, (int)result.physical);
-                break;
-            }
-        }
-    }
-    // [END]
-
-    /*input_set_capability(hi->input, EV_SW, SW_HEADPHONE_INSERT);*/
-    set_bit(EV_SYN, hi->input->evbit);
-    set_bit(EV_KEY, hi->input->evbit);
-    set_bit(EV_SW, hi->input->evbit);
-    set_bit(hi->key_code, hi->input->keybit);
-    set_bit(SW_HEADPHONE_INSERT, hi->input->swbit);
-    set_bit(SW_MICROPHONE_INSERT, hi->input->swbit);
-    input_set_capability(hi->input, EV_KEY, KEY_MEDIA);
-    input_set_capability(hi->input, EV_KEY, KEY_VOLUMEUP);
-    input_set_capability(hi->input, EV_KEY, KEY_VOLUMEDOWN);
-
-    ret = input_register_device(hi->input);
-    if (ret) {
-        HSD_ERR("Failed to register input device\n");
-        goto error_08;
-    }
-
-     // to detect in initialization with eacjack insertion
-     if( gpio_cansleep(hi->gpio_det) ) {
-        if( !gpio_get_value_cansleep(hi->gpio_det) ) {
-#ifdef CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
-            queue_delayed_work(local_max1462x_workqueue, &(hi->work), 0);
-#else
-            schedule_delayed_work(&(hi->work), 0);
-#endif
-        }
-     } else {
-        if( !gpio_get_value_cansleep(hi->gpio_det) ) {
-#ifdef CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
-            queue_delayed_work(local_max1462x_workqueue, &(hi->work), 0);
-#else
-            schedule_delayed_work(&(hi->work), 0);
-#endif
-        }
-    }
-
-    return ret;
-
-error_08:
-    input_free_device(hi->input);
-error_07:
-    switch_dev_unregister(&hi->sdev);
-error_06:
-    free_irq(hi->irq_key, 0);
-error_05:
-    free_irq(hi->irq_detect, 0);
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-error_04:
-    if( hi->external_ldo_mic_bias > 0 )
-        gpio_free(hi->external_ldo_mic_bias);
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
-error_03:
-    gpio_free(hi->gpio_swd);
-error_02:
-    gpio_free(hi->gpio_det);
-error_01:
-    mutex_destroy(&hi->mutex_lock);
-    kfree(hi);
-    return ret;
+err_input_register_device:
+	input_free_device(hi->input);
+err_input_allocate_device:
+	switch_dev_unregister(&hi->sdev);
+err_switch_dev_register:
+        free_irq(hi->irq_key, hi);
+err_irq_key_request:
+err_irq_key:
+err_irq_detect_wake:
+	free_irq(hi->irq_detect, hi);
+err_irq_detect_request:
+err_irq_detect:
+	gpio_free(hi->gpio_key);
+err_gpio_key:
+	gpio_free(hi->gpio_detect);
+err_gpio_detect:
+	gpio_free(hi->gpio_mic_en);
+err_gpio_mic_en:
+	mutex_destroy(&hi->mutex_lock);
+	kfree(hi);
+err_kzalloc:
+	destroy_workqueue(local_max1462x_workqueue);
+	local_max1462x_workqueue = NULL;
+	return ret;
 }
 
-static int lge_hsd_remove(struct platform_device *pdev)
+static int max1462x_hsd_remove(struct platform_device *pdev)
 {
-    struct hsd_info *hi = (struct hsd_info *)platform_get_drvdata(pdev);
+	struct max1462x_hsd_info *hi = platform_get_drvdata(pdev);
 
-    HSD_DBG("lge_hsd_remove");
+	if (switch_get_state(&hi->sdev))
+		max1462x_remove_headset(hi);
 
-    if (switch_get_state(&hi->sdev))
-        remove_headset(hi);
+	if (local_max1462x_workqueue) {
+		destroy_workqueue(local_max1462x_workqueue);
+		local_max1462x_workqueue = NULL;
+	}
 
-    input_unregister_device(hi->input);
-    switch_dev_unregister(&hi->sdev);
+	input_unregister_device(hi->input);
+	switch_dev_unregister(&hi->sdev);
 
-    free_irq(hi->irq_key, 0);
-    free_irq(hi->irq_detect, 0);
-    gpio_free(hi->gpio_det);
-    gpio_free(hi->gpio_swd);
-    gpio_free(hi->gpio_mode);
+	free_irq(hi->irq_key, hi);
+	free_irq(hi->irq_detect, hi);
 
-//LGE_CHANGE_S 20130710 ilda.jung[Audio] Disable not using GPIO
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-    if( hi->external_ldo_mic_bias > 0 )
-        gpio_free(hi->external_ldo_mic_bias);
-#endif
-//LGE_CHANGE_E 20130710 ilda.jung[Audio] Disable not using GPIO
+	gpio_free(hi->gpio_detect);
+	gpio_free(hi->gpio_key);
+	gpio_free(hi->gpio_mic_en);
 
-    mutex_destroy(&hi->mutex_lock);
+	mutex_destroy(&hi->mutex_lock);
 
-    kfree(hi);
+	wake_lock_destroy(&ear_hook_wake_lock);
 
-    return 0;
+	kfree(hi);
+
+	return 0;
 }
 
-// do not set a pin, mode, low when going to sleep mode in call
-#if defined(SET_MODE_PIN_LOW_IN_SLEEP)
-int lge_hsd_suspend(struct platform_device *pdev, pm_message_t state)
-{
-    struct hsd_info *hi = (struct hsd_info *)platform_get_drvdata(pdev);
-
-    if( atomic_read(&hi->is_3_pole_or_not) == HEADSET_POLE_4 ) {
-        // set mode low
-#if 1
-        gpio_direction_output(hi->gpio_mode, 0);
-        //gpio_cansleep(hi->gpio_mode) ? gpio_set_value_cansleep(hi->gpio_mode, 0) : gpio_set_value(hi->gpio_mode, 0);
-        msleep(16); // MODE 1 -> 0 Detection Time in Spec is 16ms.
-#else
-        gpio_tlmm_config(           // GPIOMUX_FUNC_GPIO
-            GPIO_CFG(hi->gpio_mode, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-                GPIO_CFG_ENABLE);
-#endif
-        HSD_DBG("lge_hsd_suspend - 4 polarity, mode set by low\n");
-    }
-
-    return 0;
-}
-
-int lge_hsd_resume(struct platform_device *pdev)
-{
-    struct hsd_info *hi = (struct hsd_info *)platform_get_drvdata(pdev);
-
-    if( atomic_read(&hi->is_3_pole_or_not) == HEADSET_POLE_4 ) {
-        // set mode high
-#if 1
-        gpio_direction_output(hi->gpio_mode, 1);
-        msleep(16); // MODE 0 -> 1 Detection Time in Spec is 4ms, but 4ms is not enough to set a value to a regiseter.
-        //gpio_cansleep(hi->gpio_mode) ? gpio_set_value_cansleep(hi->gpio_mode, 1) : gpio_set_value(hi->gpio_mode, 1);
-#else
-        gpio_tlmm_config(           // GPIOMUX_FUNC_GPIO
-            GPIO_CFG(hi->gpio_mode, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_UP, GPIO_CFG_8MA),
-                GPIO_CFG_ENABLE);
-#endif
-        HSD_DBG("lge_hsd_resume - 4 polarity, mode set by high\n");
-    }
-
-    return 0;
-}
-#endif  //SET_MODE_PIN_LOW_IN_SLEEP
-
-
-
-static struct platform_driver lge_hsd_driver = {
-    .probe          = lge_hsd_probe,
-    .remove         = lge_hsd_remove,
-#if defined(SET_MODE_PIN_LOW_IN_SLEEP)   // do not set mode low when going to sleep mode in call
-    .suspend        = lge_hsd_suspend,
-    .resume         = lge_hsd_resume,
-#endif  //SET_MODE_PIN_LOW_IN_SLEEP
-    .driver         = {
-        .name           = "max1462x",
-        .owner          = THIS_MODULE,
-    },
+static struct of_device_id max1462x_match_table[] = {
+	{ .compatible = "maxim,max1462x",},
+	{},
 };
 
-static int __init lge_hsd_init(void)
+static struct platform_driver max1462x_hsd_driver = {
+	.probe          = max1462x_hsd_probe,
+	.remove         = max1462x_hsd_remove,
+	.driver         = {
+		.name           = "max1462x",
+		.owner          = THIS_MODULE,
+		.of_match_table = max1462x_match_table,
+	},
+};
+
+static int __init max1462x_hsd_init(void)
 {
-    int ret;
+	int ret;
 
-    HSD_DBG("lge_hsd_init");
+	ret = platform_driver_register(&max1462x_hsd_driver);
+	if (ret < 0)
+		pr_err("%s: Fail to register platform driver\n", __func__);
 
-#ifdef CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
-    local_max1462x_workqueue = create_workqueue("max1462x");
-    if(!local_max1462x_workqueue)
-        return -ENOMEM;
-#endif
-    HSD_DBG("lge_hsd_init : wake_lock_init");
-    wake_lock_init(&ear_hook_wake_lock, WAKE_LOCK_SUSPEND, "ear_hook");
-
-    ret = platform_driver_register(&lge_hsd_driver);
-    if (ret) {
-        HSD_ERR("Fail to register platform driver\n");
-    }
-
-    return ret;
+	return ret;
 }
 
-static void __exit lge_hsd_exit(void)
+static void __exit max1462x_hsd_exit(void)
 {
-    HSD_DBG("lge_hsd_exit");
-
-#ifdef CONFIG_MAX1462X_USE_LOCAL_WORK_QUEUE
-    if(local_max1462x_workqueue)
-        destroy_workqueue(local_max1462x_workqueue);
-    local_max1462x_workqueue = NULL;
-#endif
-
-    platform_driver_unregister(&lge_hsd_driver);
-
-    HSD_DBG("lge_hsd_exit : wake_lock_destroy");
-    wake_lock_destroy(&ear_hook_wake_lock);
+	platform_driver_unregister(&max1462x_hsd_driver);
 }
 
-/* to make init after pmic8058-othc module */
-/* module_init(lge_hsd_init); */
-late_initcall_sync(lge_hsd_init);
-module_exit(lge_hsd_exit);
+late_initcall_sync(max1462x_hsd_init);
+module_exit(max1462x_hsd_exit);
 
-MODULE_AUTHOR("GooYeon Jung <gooyeon.jung@lge.com>");
-MODULE_DESCRIPTION("LGE Headset detection driver (max1462x)");
+MODULE_DESCRIPTION("MAX1642X Headset detection driver (max1462x)");
 MODULE_LICENSE("GPL");
-#endif

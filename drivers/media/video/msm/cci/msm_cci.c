@@ -26,8 +26,10 @@
 #define V4L2_IDENT_CCI 50005
 #define CCI_I2C_QUEUE_0_SIZE 64
 #define CCI_I2C_QUEUE_1_SIZE 16
-
 #define CCI_TIMEOUT msecs_to_jiffies(100)
+
+#undef CDBG
+#define CDBG pr_debug
 
 static void msm_cci_set_clk_param(struct cci_device *cci_dev)
 {

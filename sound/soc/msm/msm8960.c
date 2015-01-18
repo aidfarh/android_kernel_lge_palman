@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -767,21 +767,21 @@ static void *def_tabla_mbhc_cal(void)
 	btn_low = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_LOW);
 	btn_high = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_HIGH);
 	btn_low[0] = -50;
-	btn_high[0] = 21;
-	btn_low[1] = 22;
-	btn_high[1] = 67;
-	btn_low[2] = 68;
-	btn_high[2] = 111;
-	btn_low[3] = 112;
-	btn_high[3] = 153;
-	btn_low[4] = 154;
-	btn_high[4] = 191;
-	btn_low[5] = 192;
-	btn_high[5] = 233;
-	btn_low[6] = 234;
-	btn_high[6] = 272;
-	btn_low[7] = 273;
-	btn_high[7] = 400;
+	btn_high[0] = 10;
+	btn_low[1] = 11;
+	btn_high[1] = 52;
+	btn_low[2] = 53;
+	btn_high[2] = 94;
+	btn_low[3] = 95;
+	btn_high[3] = 133;
+	btn_low[4] = 134;
+	btn_high[4] = 171;
+	btn_low[5] = 172;
+	btn_high[5] = 208;
+	btn_low[6] = 209;
+	btn_high[6] = 244;
+	btn_low[7] = 245;
+	btn_high[7] = 330;
 	n_ready = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_READY);
 	n_ready[0] = 80;
 	n_ready[1] = 68;
@@ -1397,9 +1397,9 @@ static struct snd_soc_dai_link msm8960_dai_common[] = {
 		.be_id = MSM_FRONTEND_DAI_VOLTE,
 	},
 	{
-		.name = "Voice2",
-		.stream_name = "Voice2",
-		.cpu_dai_name   = "Voice2",
+		.name = "SGLTE",
+		.stream_name = "SGLTE",
+		.cpu_dai_name   = "SGLTE",
 		.platform_name  = "msm-pcm-voice",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
@@ -1409,7 +1409,7 @@ static struct snd_soc_dai_link msm8960_dai_common[] = {
 		.ignore_pmdown_time = 1,/* this dainlink has playback support */
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
-		.be_id = MSM_FRONTEND_DAI_VOICE2,
+		.be_id = MSM_FRONTEND_DAI_SGLTE,
 	},
 	{
 		.name = "MSM8960 LowLatency",

@@ -43,7 +43,7 @@ enum ion_heap_type {
 	ION_HEAP_TYPE_DMA,
 	ION_HEAP_TYPE_CUSTOM, /* must be last so device specific heaps always
 				 are at the end of this enum */
-	ION_NUM_HEAPS = 16,
+	ION_NUM_HEAPS,
 };
 
 #define ION_HEAP_SYSTEM_MASK		(1 << ION_HEAP_TYPE_SYSTEM)
@@ -510,12 +510,7 @@ static inline int msm_ion_do_cache_op(struct ion_client *client,
 struct ion_allocation_data {
 	size_t len;
 	size_t align;
-#ifdef  __KERNEL__
 	unsigned int heap_mask;
-#else
-        /* Userspace wants this renamed... */
-	unsigned int heap_id_mask;
-#endif
 	unsigned int flags;
 	struct ion_handle *handle;
 };

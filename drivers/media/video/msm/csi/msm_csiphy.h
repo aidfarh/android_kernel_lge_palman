@@ -39,6 +39,7 @@ struct csiphy_device {
 	struct clk *csiphy_clk[3];
 	uint8_t ref_count;
 	uint16_t lane_mask[MAX_CSIPHY];
+	uint32_t irq_count;/*                                                                              */
 };
 
 #define VIDIOC_MSM_CSIPHY_CFG \

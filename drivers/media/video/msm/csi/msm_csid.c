@@ -130,8 +130,11 @@ static irqreturn_t msm_csid_irq(int irq_num, void *data)
 		return IRQ_HANDLED;
 	}
 	irq = msm_camera_io_r(csid_dev->base + CSID_IRQ_STATUS_ADDR);
-	pr_err("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
-		 __func__, csid_dev->pdev->id, irq);
+	csid_dev->irq_count++;/*                                                                              */
+	if(csid_dev->irq_count < 15){/*                                                                              */
+		pr_err("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
+		 	__func__, csid_dev->pdev->id, irq);
+	}
 	if (irq & (0x1 << CSID_RST_DONE_IRQ_BITSHIFT))
 			complete(&csid_dev->reset_complete);
 	msm_camera_io_w(irq, csid_dev->base + CSID_IRQ_CLEAR_CMD_ADDR);
@@ -152,6 +155,7 @@ static void msm_csid_reset(struct csid_device *csid_dev)
 {
 	msm_camera_io_w(CSID_RST_STB_ALL, csid_dev->base + CSID_RST_CMD_ADDR);
 	wait_for_completion_interruptible(&csid_dev->reset_complete);
+	csid_dev->irq_count = 0;/*                                                                              */
 	return;
 }
 
@@ -402,7 +406,7 @@ static int msm_csid_release(struct csid_device *csid_dev)
 			csid_8974_vreg_info, ARRAY_SIZE(csid_8974_vreg_info),
 			NULL, 0, &csid_dev->csi_vdd, 0);
 	}
-
+	csid_dev->irq_count = 0;/*                                                                              */
 	iounmap(csid_dev->base);
 	csid_dev->base = NULL;
 	csid_dev->csid_state = CSID_POWER_DOWN;

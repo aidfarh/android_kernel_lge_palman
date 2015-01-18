@@ -30,7 +30,6 @@
 #include "diag_masks.h"
 #include "diagfwd_bridge.h"
 
-#include "mtsk_tty.h"
 struct diag_bridge_dev *diag_bridge;
 
 /* diagfwd_connect_bridge is called when the USB mdm channel is connected */
@@ -50,25 +49,6 @@ void connect_bridge(int process_cable, int index)
 {
 	int err;
 
-//2012-03-06 seongmook.yim(seongmook.yim@lge.com) [P6/MDMBSP] ADD LGODL [START]
-#ifdef CONFIG_LGE_DM_DEV
-			if ((process_cable) && (driver->logging_mode == DM_DEV_MODE)) {
-				pr_info("[mook]diagfwd_connect_bridge / logging_mode == DM_DEV_MODE\n");
-				printk(KERN_DEBUG "diag: USB connected in DM_DEV_MODE\n");
-				diag_bridge[index].usb_connected = 1;
-			}
-#endif /*CONFIG_LGE_DM_DEV*/
-//2012-03-06 seongmook.yim(seongmook.yim@lge.com) [P6/MDMBSP] ADD LGODL [END]
-
-
-#ifdef CONFIG_LGE_DM_APP
-	if ((process_cable) && (driver->logging_mode == DM_APP_MODE)) {
-		printk(KERN_DEBUG "diag: USB connected in DM_APP_MODE\n");
-		diag_bridge[index].usb_connected = 1;
-	}
-#endif /*CONFIG_LGE_DM_APP*/
-
-
 	mutex_lock(&diag_bridge[index].bridge_mutex);
 	/* If the usb cable is being connected */
 	if (process_cable) {
@@ -85,9 +65,7 @@ void connect_bridge(int process_cable, int index)
 		driver->in_busy_smux = 0;
 		diagfwd_connect_smux();
 	} else {
-		if (diag_hsic[index].hsic_device_enabled &&
-			(driver->logging_mode != MEMORY_DEVICE_MODE ||
-			diag_hsic[index].hsic_data_requested)) {
+		if (diag_hsic[index].hsic_device_enabled) {
 			diag_hsic[index].in_busy_hsic_read_on_device = 0;
 			diag_hsic[index].in_busy_hsic_write = 0;
 			/* If the HSIC (diag_bridge) platform
@@ -138,36 +116,6 @@ int diagfwd_disconnect_bridge(int process_cable)
 {
 	int i;
 	pr_debug("diag: In %s, process_cable: %d\n", __func__, process_cable);
-//2012-03-06 seongmook.yim(seongmook.yim@lge.com) [P6/MDMBSP] ADD LGODL [START]
-#ifdef CONFIG_LGE_DM_DEV
-		if (driver->logging_mode == DM_DEV_MODE) {
-			pr_info("[mook] diagfwd_disconnect_bridge ++ / driver->logging_mode == DM_DEV_MODE // %d \n",driver->logging_mode);
-			for (i = 0; i < MAX_BRIDGES; i++) {
-				mutex_lock(&diag_bridge[i].bridge_mutex);
-				if (diag_bridge[i].enabled) {
-					diag_bridge[i].usb_connected = 0;
-					}
-				mutex_unlock(&diag_bridge[i].bridge_mutex);
-				}
-			return 0;
-		}
-#endif /*CONFIG_LGE_DM_DEV*/
-//2012-03-06 seongmook.yim(seongmook.yim@lge.com) [P6/MDMBSP] ADD LGODL [END]
-
-
-#ifdef CONFIG_LGE_DM_APP
-			if (driver->logging_mode == DM_APP_MODE) {
-				for (i = 0; i < MAX_BRIDGES; i++) {
-					mutex_lock(&diag_bridge[i].bridge_mutex);
-					if (diag_bridge[i].enabled) {
-						diag_bridge[i].usb_connected = 0;
-						}
-					mutex_unlock(&diag_bridge[i].bridge_mutex);
-					}
-				return 0;
-			}
-#endif /*CONFIG_LGE_DM_APP*/
-
 
 	for (i = 0; i < MAX_BRIDGES; i++) {
 		if (diag_bridge[i].enabled) {
@@ -178,24 +126,20 @@ int diagfwd_disconnect_bridge(int process_cable)
 				usb_diag_free_req(diag_bridge[i].ch);
 			}
 
-			if (i == SMUX) {
-				if (driver->diag_smux_enabled &&
+			if (i == SMUX && driver->diag_smux_enabled &&
 					driver->logging_mode == USB_MODE) {
-					driver->in_busy_smux = 1;
-					driver->lcid = LCID_INVALID;
-					driver->smux_connected = 0;
-					/*
-					 * Turn off communication over usb
-					 * and smux
-					 */
-					msm_smux_close(LCID_VALID);
-				}
+				driver->in_busy_smux = 1;
+				driver->lcid = LCID_INVALID;
+				driver->smux_connected = 0;
+				/* Turn off communication over usb and smux */
+				msm_smux_close(LCID_VALID);
 			}  else {
 				if (diag_hsic[i].hsic_device_enabled &&
-				     (driver->logging_mode != MEMORY_DEVICE_MODE
-				     || !diag_hsic[i].hsic_data_requested)) {
+				     driver->logging_mode !=
+							MEMORY_DEVICE_MODE) {
 					diag_hsic[i].
-						in_busy_hsic_read_on_device = 1;
+						in_busy_hsic_read_on_device
+						= 1;
 					diag_hsic[i].in_busy_hsic_write = 1;
 					/* Turn off communication over usb
 					 * and HSIC */
@@ -319,15 +263,6 @@ void diagfwd_bridge_init(int index)
 		strlcpy(name, "hsic_2", sizeof(name));
 	} else if (index == SMUX) {
 		strlcpy(name, "smux", sizeof(name));
-//2012-03-06 seongmook.yim(seongmook.yim@lge.com) [P6/MDMBSP] ADD LGODL [START]
-#if defined(CONFIG_LGE_DM_DEV) || defined(CONFIG_LGE_DM_APP)
-
-	} else if (index == HSIC_3) {
-		strlcpy(name, "hsic_3", sizeof(name));
-	} else if (index == HSIC_4) {
-		strlcpy(name, "hsic_4", sizeof(name));
-#endif /* CONFIG_LGE_DM_DEV */
-//2012-03-06 seongmook.yim(seongmook.yim@lge.com) [P6/MDMBSP] ADD LGODL [END]
 	} else {
 		pr_err("diag: incorrect bridge init, instance: %d\n", index);
 		return;
@@ -445,9 +380,3 @@ void diagfwd_bridge_exit(void)
 	}
 	kfree(driver->write_ptr_mdm);
 }
-int mtsk_tty_send_mask(struct diag_request *diag_read_ptr) {
-
-
-	return diagfwd_read_complete_bridge(diag_read_ptr);
-}
-

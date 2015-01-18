@@ -166,7 +166,6 @@ struct ip_reply_arg {
 				/* -1 if not needed */ 
 	int	    bound_dev_if;
 	u8  	    tos;
-	uid_t	    uid;
 }; 
 
 #define IP_REPLY_ARG_NOSRCCHECK 1
@@ -218,8 +217,6 @@ extern void inet_get_local_port_range(int *low, int *high);
 extern unsigned long *sysctl_local_reserved_ports;
 static inline int inet_is_reserved_local_port(int port)
 {
-	if (ccs_lport_reserved(port))
-		return 1;
 	return test_bit(port, sysctl_local_reserved_ports);
 }
 
@@ -239,9 +236,6 @@ extern int sysctl_ip_dynaddr;
 extern void ipfrag_init(void);
 
 extern void ip_static_sysctl_init(void);
-
-#define IP4_REPLY_MARK(net, mark) \
-	((net)->ipv4.sysctl_fwmark_reflect ? (mark) : 0)
 
 static inline bool ip_is_fragment(const struct iphdr *iph)
 {

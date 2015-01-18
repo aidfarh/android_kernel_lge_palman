@@ -14,10 +14,8 @@
 #include "msm_sensor.h"
 #include "msm_camera_i2c_mux.h"
 #include <linux/mfd/pm8xxx/pm8921.h>
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
-#include "../../../../../arch/arm/mach-msm/lge/awifi/board-awifi.h"
-#else
-#include "../../../../../arch/arm/mach-msm/lge/L05E/board-L05E.h"
+#if defined(CONFIG_MACH_APQ8064_PALMAN)
+#include "../../../../../arch/arm/mach-msm/lge/palman/board-palman.h"
 #endif
 #include <mach/board_lge.h>
 #define SENSOR_NAME "imx119"
@@ -25,7 +23,7 @@
 #define imx119_obj imx119_##obj
 
 #define MSM_CAM2_RST_EN PM8921_GPIO_PM_TO_SYS(28)	//VTCAM_RST_N
-#define CAMERA_DEBUG 1
+#define CAMERA_DEBUG 0
 #define LDBGE(fmt,args...) printk(KERN_EMERG "[CAM/E][ERR] "fmt,##args)
 #if (CAMERA_DEBUG)
 #define LDBGI(fmt,args...) printk(KERN_EMERG "[CAM/I] "fmt,##args)
@@ -69,20 +67,20 @@ static struct msm_camera_i2c_reg_conf imx119_groupoff_settings[] = {
 };
 
 static struct msm_camera_i2c_reg_conf imx119_prev_settings[] = {
-/* LGE_CHANGE_S, Front_cam_Flip for AWIFI, 2013-06-14, john.park@lge.com */
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
+/*                                                                       */
+#if defined(CONFIG_MACH_APQ8064_PALMAN)
 		{0x0101, 0x00}, 
 #else
 		{0x0101, 0x03}, 
 #endif
-/* LGE_CHANGE_E, Front_cam_Flip for AWIFI, 2013-06-14, john.park@lge.com */
-/* LGE_CHANGE_S Stripe issue fix, hyunuk.park@lge.com*/
-#if 1 // LGE_CAMERA_IQ_S, flicker fix with 29.5fps, adds linelengthpclk regs, L9II, QCT Andy 20130613
+/*                                                                       */
+/*                                                   */
+#if 1 //                                                                                             
 		{0x0342, 0x05},
 		{0x0343, 0x70},
-#endif // LGE_CAMERA_IQ_E, flicker fix with 29.5fps, adds linelengthpclk regs, L9II, QCT Andy 20130613
+#endif //                                                                                             
 	{0x0340, 0x06},
-	{0x0341, 0x2a},//0x10}, // LGE_CAMERA_IQ, flicker fix with 29.5fps, L9II, QCT Andy 20130613
+	{0x0341, 0x2a},//                                                                          
 	{0x0346, 0x00},
 	{0x0347, 0x00},
 	{0x034A, 0x04},
@@ -105,16 +103,16 @@ static struct msm_camera_i2c_reg_conf imx119_prev_settings[] = {
 	{0x3309, 0x07},
 	{0x330B, 0x05},
 	{0x330D, 0x08},
-/* LGE_CHANGE_E Stripe issue fix, hyunuk.park@lge.com*/
+/*                                                   */
 };
 
 static struct msm_camera_i2c_reg_conf imx119_recommend_settings[] = {
-/* LGE_CHANGE_S Stripe issue fix, hyunuk.park@lge.com*/
+/*                                                   */
 //	{0x0305, 0x02},
 //	{0x0307, 0x26},
 	{0x0305, 0x01},
 	{0x0307, 0x1B},
-/* LGE_CHANGE_E Stripe issue fix, hyunuk.park@lge.com*/
+/*                                                   */
 	{0x3025, 0x0A},
 	{0x302B, 0x4B},
 	{0x0112, 0x0A},
@@ -131,25 +129,25 @@ static struct msm_camera_i2c_reg_conf imx119_recommend_settings[] = {
 	{0x308C, 0x00},
 	{0x302E, 0x8C},
 	{0x302F, 0x81},
-/* LGE_CHANGE
- * Fix the rotaion issue for Recorded moive on Windows. 
- * 2012-01-13, soojung.lim@lge.com
+/*           
+                                                        
+                                  
  */	
-/* LGE_CHANGE_S, Front_cam_Flip for AWIFI, 2013-06-14, john.park@lge.com */
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
+/*                                                                       */
+#if defined(CONFIG_MACH_APQ8064_PALMAN)
 	{0x0101, 0x00}, 
 #else
 	{0x0101, 0x03}, 
 #endif
-/* LGE_CHANGE_E, Front_cam_Flip for AWIFI, 2013-06-14, john.park@lge.com */
+/*                                                                       */
 };
 
 static struct v4l2_subdev_info imx119_subdev_info[] = {
 	{
-	.code   = V4L2_MBUS_FMT_SBGGR10_1X10,
+	.code = V4L2_MBUS_FMT_SBGGR10_1X10,
 	.colorspace = V4L2_COLORSPACE_JPEG,
-	.fmt    = 1,
-	.order    = 0,
+	.fmt = 1,
+	.order = 0,
 	},
 	/* more can be supported, to be added later */
 };
@@ -169,14 +167,14 @@ static struct msm_sensor_output_info_t imx119_dimensions[] = {
 		.x_output = 0x510,
 		.y_output = 0x410,
 		.line_length_pclk = 0x570,
-/* LGE_CHANGE_S Stripe issue fix, hyunuk.park@lge.com */
+/*                                                    */
 		//.frame_length_lines = 0x432,
-		.frame_length_lines = 0x62a,//0x610,// LGE_CAMERA_IQ, flicker fix with 29.5fps, L9II, QCT Andy 20130613
+		.frame_length_lines = 0x62a,//                                                                         
 //		.vt_pixel_clk = 45600000,
 //		.op_pixel_clk = 45600000,
 		.vt_pixel_clk = 64800000,
 		.op_pixel_clk = 109710000,//64800000 ,
-/* LGE_CHANGE_E Stripe issue fix, hyunuk.park@lge.com*/
+/*                                                   */
 	},
 };
 
@@ -191,11 +189,11 @@ static enum msm_camera_vreg_name_t imx119_veg_seq[] = {
 	CAM_VDIG,
 	CAM_VIO,
 	CAM_VANA,
-/* LGE_CHANGE_S, for A-PJT, 2013.5.14, jungki.kim[Start] */
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
+/*                                                       */
+#if defined(CONFIG_MACH_APQ8064_PALMAN)
 	CAM_VAF,	// for I2C
 #endif
-/* LGE_CHANGE_E, for A-PJT, 2013.5.14, jungki.kim[End] */
+/*                                                     */
 };
 
 static struct msm_sensor_id_info_t imx119_id_info = {
@@ -217,7 +215,7 @@ static const struct i2c_device_id imx119_i2c_id[] = {
 
 static struct i2c_driver imx119_i2c_driver = {
 	.id_table = imx119_i2c_id,
-	.probe  = msm_sensor_i2c_probe,
+	.probe = msm_sensor_i2c_probe,
 	.driver = {
 		.name = SENSOR_NAME,
 	},
@@ -242,7 +240,7 @@ static struct v4l2_subdev_video_ops imx119_subdev_video_ops = {
 
 static struct v4l2_subdev_ops imx119_subdev_ops = {
 	.core = &imx119_subdev_core_ops,
-	.video  = &imx119_subdev_video_ops,
+	.video = &imx119_subdev_video_ops,
 };
 
 static struct msm_sensor_fn_t imx119_func_tbl = {
@@ -252,9 +250,7 @@ static struct msm_sensor_fn_t imx119_func_tbl = {
 	.sensor_group_hold_off = msm_sensor_group_hold_off,
 	.sensor_set_fps = msm_sensor_set_fps,
 	.sensor_write_exp_gain = msm_sensor_write_exp_gain1,
-/* LGE_CHANGE_S, add snapshot exp gain, 2012-03-14, chaehee.lim@lge.com */
 	.sensor_write_snapshot_exp_gain = msm_sensor_write_exp_gain1,
-/* LGE_CHANGE_E, add snapshot exp gain, 2012-03-14, chaehee.lim@lge.com */
 	.sensor_setting = msm_sensor_setting,
 	.sensor_set_sensor_mode = msm_sensor_set_sensor_mode,
 	.sensor_mode_init = msm_sensor_mode_init,
@@ -262,9 +258,7 @@ static struct msm_sensor_fn_t imx119_func_tbl = {
 	.sensor_config = msm_sensor_config,
 	.sensor_power_up = imx119_sensor_power_up,
 	.sensor_power_down = imx119_sensor_power_down,
-//Start LGE_BSP_CAMERA : au069 patch - jonghwan.ko@lge.com
 	.sensor_get_csi_params = msm_sensor_get_csi_params,
-//End  LGE_BSP_CAMERA : au069 patch - jonghwan.ko@lge.com
 };
 
 static struct msm_sensor_reg_t imx119_regs = {
@@ -276,8 +270,7 @@ static struct msm_sensor_reg_t imx119_regs = {
 	.group_hold_on_conf = imx119_groupon_settings,
 	.group_hold_on_conf_size = ARRAY_SIZE(imx119_groupon_settings),
 	.group_hold_off_conf = imx119_groupoff_settings,
-	.group_hold_off_conf_size =
-		ARRAY_SIZE(imx119_groupoff_settings),
+	.group_hold_off_conf_size = ARRAY_SIZE(imx119_groupoff_settings),
 	.init_settings = &imx119_init_conf[0],
 	.init_size = ARRAY_SIZE(imx119_init_conf),
 	.mode_settings = &imx119_confs[0],
@@ -302,11 +295,11 @@ static struct msm_sensor_ctrl_t imx119_s_ctrl = {
 	.sensor_v4l2_subdev_info_size = ARRAY_SIZE(imx119_subdev_info),
 	.sensor_v4l2_subdev_ops = &imx119_subdev_ops,
 	.func_tbl = &imx119_func_tbl,
-/* LGE_CHANGE_S, for A-PJT, 2013.5.14, jungki.kim[Start] */
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
+/*                                                       */
+#if defined(CONFIG_MACH_APQ8064_PALMAN)
 	.clk_rate = MSM_SENSOR_MCLK_24HZ,
 #endif
-/* LGE_CHANGE_E, for A-PJT, 2013.5.14, jungki.kim[End] */
+/*                                                     */
 };
 
 int32_t imx119_msm_sensor_enable_i2c_mux(struct msm_camera_i2c_conf *i2c_conf)
@@ -367,12 +360,12 @@ int32_t imx119_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		goto config_vreg_failed;
 	}
 
-/*LGE_CHANGE_START, youngwook.song@lge.com Power Sequence Reconfig. 2013-02-27 */
+/*                                                                             */
 	rc = gpio_request(MSM_CAM2_RST_EN, "VTCAM_RST_EN");
 	if (rc) {
 		LDBGE("%s: PM request gpio failed\n", __func__);
 	}
-/*LGE_CHANGE_END, youngwook.song@lge.com Power Sequence Reconfig. 2013-02-27 */
+/*                                                                           */
 	rc = msm_camera_enable_vreg(dev,
 			s_ctrl->sensordata->sensor_platform_info->cam_vreg,
 			s_ctrl->sensordata->sensor_platform_info->num_vreg,
@@ -383,14 +376,14 @@ int32_t imx119_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		LDBGE("%s: enable regulator failed\n", __func__);
 		goto enable_vreg_failed;
 	}
-/*LGE_CHANGE_START, youngwook.song@lge.com Power Sequence Reconfig. 2013-02-27 */
+/*                                                                             */
 	usleep(100);
 
 	rc =pm8xxx_gpio_config(MSM_CAM2_RST_EN, &gpio28_param);
 	if (rc) {
 		LDBGE("%s: pm8xxx_gpio_config on failed\n", __func__);
 	}
-/*LGE_CHANGE_END, youngwook.song@lge.com Power Sequence Reconfig. 2013-02-27 */
+/*                                                                           */
 	rc = gpio_direction_output(MSM_CAM2_RST_EN, 1);
 
 	rc = msm_camera_config_gpio_table(data, 1);
@@ -525,5 +518,4 @@ int32_t imx119_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 module_init(msm_sensor_init_module);
 MODULE_DESCRIPTION("Sony 1.3MP Bayer sensor driver");
 MODULE_LICENSE("GPL v2");
-
 

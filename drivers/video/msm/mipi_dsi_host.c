@@ -56,7 +56,6 @@ static struct mutex clk_mutex;
 
 static struct list_head pre_kickoff_list;
 static struct list_head post_kickoff_list;
-struct work_struct mdp_reset_work;
 
 enum {
 	STAT_DSI_START,
@@ -93,11 +92,6 @@ void mipi_dsi_mdp_stat_inc(int which)
 }
 #endif
 
-static void mdp_reset_wq_handler(struct work_struct *work)
-{
-	mdp4_mixer_reset(0);
-}
-
 void mipi_dsi_init(void)
 {
 	init_completion(&dsi_dma_comp);
@@ -110,7 +104,6 @@ void mipi_dsi_init(void)
 	spin_lock_init(&dsi_clk_lock);
 	mutex_init(&cmd_mutex);
 	mutex_init(&clk_mutex);
-	INIT_WORK(&mdp_reset_work, mdp_reset_wq_handler);
 
 	INIT_LIST_HEAD(&pre_kickoff_list);
 	INIT_LIST_HEAD(&post_kickoff_list);
@@ -182,7 +175,7 @@ void mipi_dsi_clk_cfg(int on)
 	mutex_lock(&clk_mutex);
 	if (on) {
 		if (dsi_clk_cnt == 0) {
-			mipi_dsi_prepare_ahb_clocks();
+			mipi_dsi_prepare_clocks();
 			mipi_dsi_ahb_ctrl(1);
 			mipi_dsi_clk_enable();
 		}
@@ -192,9 +185,8 @@ void mipi_dsi_clk_cfg(int on)
 			dsi_clk_cnt--;
 			if (dsi_clk_cnt == 0) {
 				mipi_dsi_clk_disable();
-				mipi_dsi_unprepare_clocks();
 				mipi_dsi_ahb_ctrl(0);
-				mipi_dsi_unprepare_ahb_clocks();
+				mipi_dsi_unprepare_clocks();
 			}
 		}
 	}
@@ -205,7 +197,6 @@ void mipi_dsi_clk_cfg(int on)
 
 void mipi_dsi_turn_on_clks(void)
 {
-	mipi_dsi_prepare_ahb_clocks();
 	mipi_dsi_ahb_ctrl(1);
 	mipi_dsi_clk_enable();
 }
@@ -213,9 +204,7 @@ void mipi_dsi_turn_on_clks(void)
 void mipi_dsi_turn_off_clks(void)
 {
 	mipi_dsi_clk_disable();
-	mipi_dsi_unprepare_clocks();
 	mipi_dsi_ahb_ctrl(0);
-	mipi_dsi_unprepare_ahb_clocks();
 }
 
 static void mipi_dsi_action(struct list_head *act_list)
@@ -1187,20 +1176,9 @@ int mipi_dsi_cmds_tx(struct dsi_buf *tp, struct dsi_cmd_desc *cmds, int cnt)
 		mipi_dsi_enable_irq(DSI_CMD_TERM);
 		mipi_dsi_buf_init(tp);
 		mipi_dsi_cmd_dma_add(tp, cm);
-#if defined(CONFIG_MACH_LGE)
-		if(mipi_dsi_cmd_dma_tx(tp) == 0) {
-			printk(KERN_INFO "%s : mipi_dsi_cmd_dma_tx timeout! cm num = %d, cm payload = %s\n", __func__, i, cm->payload);
-			return -1;
-		}
-#else /* QCT Original */
 		mipi_dsi_cmd_dma_tx(tp);
-#endif
 		if (cm->wait)
-#ifdef CONFIG_MACH_LGE
-			mdelay(cm->wait);
-#else /* QCT Original */
 			msleep(cm->wait);
-#endif
 		cm++;
 	}
 
@@ -1511,9 +1489,6 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 {
 	unsigned long flags;
 
-#ifdef CONFIG_MACH_LGE
-	long timeout;
-#endif
 #ifdef DSI_HOST_DEBUG
 	int i;
 	char *bp;
@@ -1549,21 +1524,10 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 	wmb();
 	spin_unlock_irqrestore(&dsi_mdp_lock, flags);
 
-#ifdef CONFIG_MACH_LGE
-	timeout = wait_for_completion_timeout(&dsi_dma_comp, msecs_to_jiffies(VSYNC_PERIOD*20)); // 320ms
-	if (timeout == 0)
-	{
-		pr_err("%s: wait_for_completion_timeout .. \n", __func__);
-		dma_unmap_single(&dsi_dev, tp->dmap, tp->len, DMA_TO_DEVICE);
-		tp->dmap = 0;
-		return timeout;
-	}
-#else
 	if (!wait_for_completion_timeout(&dsi_dma_comp,
 					msecs_to_jiffies(200))) {
 		pr_err("%s: dma timeout error\n", __func__);
 	}
-#endif
 
 	dma_unmap_single(&dsi_dev, tp->dmap, tp->len, DMA_TO_DEVICE);
 	tp->dmap = 0;
@@ -1779,11 +1743,6 @@ void mipi_dsi_ack_err_status(void)
 
 	if (status) {
 		MIPI_OUTP(MIPI_DSI_BASE + 0x0064, status);
-		/*
-		 * base on hw enginner, write an extra 0 needed
-		 * to clear error bits
-		 */
-		MIPI_OUTP(MIPI_DSI_BASE + 0x0064, ~status);
 		pr_debug("%s: status=%x\n", __func__, status);
 	}
 }
@@ -1821,7 +1780,7 @@ void mipi_dsi_fifo_status(void)
 		MIPI_OUTP(MIPI_DSI_BASE + 0x0008, status);
 		pr_err("%s: Error: status=%x\n", __func__, status);
 		mipi_dsi_sw_reset();
-		schedule_work(&mdp_reset_work);
+		mdp4_mixer_reset(0);
 	}
 }
 

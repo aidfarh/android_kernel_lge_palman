@@ -31,33 +31,6 @@ static atomic_t ispif_irq_cnt;
 static spinlock_t ispif_tasklet_lock;
 static struct list_head ispif_tasklet_q;
 
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-#define ABANDON_TIMEOUT_VAL 5*1000
-static int is_abandon_flag = 0;
-static void abandon_fn(struct work_struct *work);
-static DECLARE_DELAYED_WORK(abandon_work, abandon_fn);
-
-static void abandon_fn(struct work_struct *work)
-{
-	is_abandon_flag = 1;
-	return;
-}
-
-#define INIT_ABANDON_WORK() do{cancel_delayed_work(&abandon_work);\
-								is_abandon_flag=0;\
-								schedule_delayed_work(&abandon_work, msecs_to_jiffies(ABANDON_TIMEOUT_VAL));}while(0);
-
-#define MSM_ISPIF_WAIT_FOR_SIG_JUMP(lable)	do{if(is_abandon_flag == 1){\
-												goto lable;}}while(0);
-
-#define MSM_ISPIF_WAIT_FOR_SIG_JUMP2(var, label)do{if(is_abandon_flag == 1){\
-													var = -EBUSY;goto label;}}while(0);
-
-#define DEINIT_ABANDON_WORK() do{cancel_delayed_work(&abandon_work);}while(0);
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
-
 static int msm_ispif_intf_reset(struct ispif_device *ispif,
 	uint16_t intfmask, uint8_t vfe_intf)
 {
@@ -376,13 +349,6 @@ static void msm_ispif_intf_cmd(struct ispif_device *ispif, uint16_t intfmask,
 	uint16_t mask = intfmask, intfnum = 0;
 	uint32_t cid_mask = 0;
 	uint32_t global_intf_cmd_mask1 = 0xFFFFFFFF;
-
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-	INIT_ABANDON_WORK();
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
-
 	while (mask != 0) {
 		if (!(intfmask & (0x1 << intfnum))) {
 			mask >>= 1;
@@ -413,15 +379,7 @@ static void msm_ispif_intf_cmd(struct ispif_device *ispif, uint16_t intfmask,
 		}
 		mask >>= 1;
 		intfnum++;
-#if defined(CONFIG_LGE_GK_CAMERA)
-		MSM_ISPIF_WAIT_FOR_SIG_JUMP(init_end);
-#endif
 	}
-#if defined(CONFIG_LGE_GK_CAMERA)
-init_end:
-	DEINIT_ABANDON_WORK();
-#endif
-
 	msm_camera_io_w(ispif->global_intf_cmd_mask,
 		ispif->base + ISPIF_INTF_CMD_ADDR + (0x200 * vfe_intf));
 	if (global_intf_cmd_mask1 != 0xFFFFFFFF)
@@ -476,12 +434,6 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 	CDBG("%s intfmask %x intf_cmd_mask %x\n", __func__, intfmask,
 		intf_cmd_mask);
 	msm_ispif_intf_cmd(ispif, intfmask, intf_cmd_mask, vfe_intf);
-
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-	INIT_ABANDON_WORK();
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
 	while (mask != 0) {
 		if (intfmask & (0x1 << intfnum)) {
 			switch (intfnum) {
@@ -491,11 +443,6 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 					(0x200 * vfe_intf))
 					& 0xf) != 0xf) {
 					CDBG("Wait for pix0 Idle\n");
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-					MSM_ISPIF_WAIT_FOR_SIG_JUMP2(rc, stop_end);
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
 				}
 				break;
 
@@ -505,11 +452,6 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 					(0x200 * vfe_intf))
 					& 0xf) != 0xf) {
 					CDBG("Wait for rdi0 Idle\n");
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-					MSM_ISPIF_WAIT_FOR_SIG_JUMP2(rc, stop_end);
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
 				}
 				break;
 
@@ -519,11 +461,6 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 					(0x200 * vfe_intf))
 					& 0xf) != 0xf) {
 					CDBG("Wait for pix1 Idle\n");
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-					MSM_ISPIF_WAIT_FOR_SIG_JUMP2(rc, stop_end);
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
 				}
 				break;
 
@@ -533,11 +470,6 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 					(0x200 * vfe_intf))
 					& 0xf) != 0xf) {
 					CDBG("Wait for rdi1 Idle\n");
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-					MSM_ISPIF_WAIT_FOR_SIG_JUMP2(rc, stop_end);
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
 				}
 				break;
 
@@ -547,11 +479,6 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 					(0x200 * vfe_intf))
 					& 0xf) != 0xf) {
 					CDBG("Wait for rdi2 Idle\n");
-/* LGE_CHANGE_S, camera recovery patch, 2013.1.17, jungki.kim[Start] */
-#if defined(CONFIG_LGE_GK_CAMERA)
-					MSM_ISPIF_WAIT_FOR_SIG_JUMP2(rc, stop_end);
-#endif
-/* LGE_CHANGE_E, camera recovery patch, 2013.1.17, jungki.kim[End] */
 				}
 				break;
 
@@ -564,14 +491,7 @@ static int msm_ispif_stop_intf_transfer(struct ispif_device *ispif,
 		}
 		mask >>= 1;
 		intfnum++;
-#if defined(CONFIG_LGE_GK_CAMERA)
-		MSM_ISPIF_WAIT_FOR_SIG_JUMP2(rc, stop_end);
-#endif
 	}
-#if defined(CONFIG_LGE_GK_CAMERA)
-stop_end:
-	DEINIT_ABANDON_WORK();
-#endif
 	mutex_unlock(&ispif->mutex);
 	return rc;
 }
@@ -653,6 +573,7 @@ static void ispif_process_irq(struct ispif_device *ispif,
 	unsigned long flags;
 	struct ispif_isr_queue_cmd *qcmd;
 
+	CDBG("ispif_process_irq\n");
 	qcmd = kzalloc(sizeof(struct ispif_isr_queue_cmd),
 		GFP_ATOMIC);
 	if (!qcmd) {
@@ -665,12 +586,6 @@ static void ispif_process_irq(struct ispif_device *ispif,
 
 	if (qcmd->ispifInterruptStatus0 &
 			ISPIF_IRQ_STATUS_PIX_SOF_MASK) {
-#ifdef CONFIG_CE1702
-        {
-          extern int ce1702_irq_log;
-          if (ce1702_irq_log) printk(KERN_EMERG "[CAM] %s: PIX0 SOF\n", __func__);
-        }
-#endif
 			ispif->pix_sof_count++;
 			v4l2_subdev_notify(&ispif->subdev,
 				NOTIFY_VFE_PIX_SOF_COUNT,
@@ -679,12 +594,6 @@ static void ispif_process_irq(struct ispif_device *ispif,
 
 	if (qcmd->ispifInterruptStatus0 &
 			ISPIF_IRQ_STATUS_RDI0_SOF_MASK) {
-#ifdef CONFIG_CE1702
-        {
-          extern int ce1702_irq_log;
-          if (ce1702_irq_log) printk(KERN_EMERG "[CAM] %s: RDI0 SOF\n", __func__);
-        }
-#endif
 			ispif->rdi0_sof_count++;
 			CDBG("%s: ispif RDI0 irq status, counter = %d",
 				__func__, ispif->rdi0_sof_count);
@@ -692,12 +601,6 @@ static void ispif_process_irq(struct ispif_device *ispif,
 	}
 	if (qcmd->ispifInterruptStatus1 &
 		ISPIF_IRQ_STATUS_RDI1_SOF_MASK) {
-#ifdef CONFIG_CE1702
-		{
-			extern int ce1702_irq_log;
-			if (ce1702_irq_log) printk(KERN_EMERG "[CAM] %s: RDI1 SOF\n", __func__);
-		}
-#endif
 		ispif->rdi1_sof_count++;
 		CDBG("%s: ispif RDI1 irq status, counter = %d",
 			__func__, ispif->rdi1_sof_count);
@@ -705,18 +608,11 @@ static void ispif_process_irq(struct ispif_device *ispif,
 	}
 	if (qcmd->ispifInterruptStatus2 &
 		ISPIF_IRQ_STATUS_RDI2_SOF_MASK) {
-#ifdef CONFIG_CE1702
-		{
-			extern int ce1702_irq_log;
-			if (ce1702_irq_log) printk(KERN_EMERG "[CAM] %s: RDI2 SOF\n", __func__);
-		}
-#endif
 		ispif->rdi2_sof_count++;
 		CDBG("%s: ispif RDI2 irq status, counter = %d",
 			__func__, ispif->rdi2_sof_count);
 		send_rdi_sof(ispif, RDI_2, ispif->rdi2_sof_count);
 	}
-
 	spin_lock_irqsave(&ispif_tasklet_lock, flags);
 	list_add_tail(&qcmd->list, &ispif_tasklet_q);
 
@@ -848,7 +744,7 @@ static void msm_ispif_release(struct ispif_device *ispif)
 		return;
 	}
 
-	CDBG("%s, free_irq\n", __func__);
+	pr_err("%s, free_irq\n", __func__);
 	free_irq(ispif->irq->start, ispif);
 	tasklet_kill(&ispif->ispif_tasklet);
 
@@ -905,24 +801,19 @@ static long msm_ispif_cmd(struct v4l2_subdev *sd, void *arg)
 static long msm_ispif_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd,
 								void *arg)
 {
-//Start LGE_BSP_CAMERA : qcom-daemon - jonghwan.ko@lge.com
-#if !defined(CONFIG_LGE_GK_CAMERA)
+//                                                        
 	struct ispif_device *ispif;
-#endif
-//End  LGE_BSP_CAMERA : qcom-daemon - jonghwan.ko@lge.com
+//                                                       
 	switch (cmd) {
 	case VIDIOC_MSM_ISPIF_CFG:
 		return msm_ispif_cmd(sd, arg);
-
-//Start LGE_BSP_CAMERA : qcom-daemon - jonghwan.ko@lge.com
-#if !defined(CONFIG_LGE_GK_CAMERA)
+//                                                        
 	case VIDIOC_MSM_ISPIF_REL:
 		pr_err(" VIDIOC_MSM_ISPIF_REL  ");
 		ispif =	(struct ispif_device *)v4l2_get_subdevdata(sd);
 		msm_ispif_release(ispif);
 		return 0;
-#endif
-//End  LGE_BSP_CAMERA : qcom-daemon - jonghwan.ko@lge.com
+//                                                       
 	default:
 		return -ENOIOCTLCMD;
 	}

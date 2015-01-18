@@ -33,7 +33,7 @@ struct i2c_bl_platform_data {
 	int max_brightness;
 	int default_brightness;
 	int factory_brightness;
-    int factory_mode;
+	int factory_mode;
 
 	struct i2c_bl_cmd *init_cmds;
 	int init_cmds_size;

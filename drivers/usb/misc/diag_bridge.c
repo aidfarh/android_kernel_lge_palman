@@ -44,7 +44,6 @@ struct diag_bridge {
 	struct mutex		ifc_mutex;
 	struct diag_bridge_ops	*ops;
 	struct platform_device	*pdev;
-	int			id;
 
 	/* debugging counters */
 	unsigned long		bytes_to_host;
@@ -83,14 +82,26 @@ int diag_bridge_open(int id, struct diag_bridge_ops *ops)
 }
 EXPORT_SYMBOL(diag_bridge_open);
 
-static void diag_bridge_delete(struct kref *kref)
+static void __diag_bridge_delete(struct kref *kref, bool unregister)
 {
 	struct diag_bridge *dev = container_of(kref, struct diag_bridge, kref);
-	int id = dev->id;
+	int id = dev->pdev->id;
 
 	usb_put_dev(dev->udev);
 	__dev[id] = 0;
+	if (unregister)
+		platform_device_unregister(dev->pdev);
 	kfree(dev);
+}
+
+static void diag_bridge_delete(struct kref *kref)
+{
+	__diag_bridge_delete(kref, false);
+}
+
+static void diag_bridge_delete_and_unregister(struct kref *kref)
+{
+	__diag_bridge_delete(kref, true);
 }
 
 void diag_bridge_close(int id)
@@ -460,7 +471,6 @@ diag_bridge_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 		return -ENOMEM;
 	}
 	__dev[devid] = dev;
-	dev->id = devid;
 
 	dev->udev = usb_get_dev(interface_to_usbdev(ifc));
 	dev->ifc = ifc;
@@ -506,12 +516,11 @@ static void diag_bridge_disconnect(struct usb_interface *ifc)
 
 	dev_dbg(&dev->ifc->dev, "%s:\n", __func__);
 
-	platform_device_unregister(dev->pdev);
 	mutex_lock(&dev->ifc_mutex);
 	dev->ifc = NULL;
 	mutex_unlock(&dev->ifc_mutex);
 	diag_bridge_debugfs_cleanup();
-	kref_put(&dev->kref, diag_bridge_delete);
+	kref_put(&dev->kref, diag_bridge_delete_and_unregister);
 	usb_set_intfdata(ifc, NULL);
 }
 

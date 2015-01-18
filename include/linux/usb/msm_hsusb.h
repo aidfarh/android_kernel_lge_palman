@@ -328,7 +328,7 @@ struct msm_otg {
 	unsigned cur_power;
 	struct delayed_work chg_work;
 	struct delayed_work pmic_id_status_work;
-#if defined(CONFIG_USB_G_LGE_ANDROID) && defined(CONFIG_USB_OTG)
+#if defined(CONFIG_USB_OTG)
 	struct delayed_work pmic_id_work;
 	struct delayed_work usb_id_sel_work;
 #endif

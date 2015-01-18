@@ -66,19 +66,8 @@
 #include <linux/usb/gadget.h>
 #include <linux/usb/otg.h>
 #include <linux/usb/msm_hsusb.h>
-#include <linux/tracepoint.h>
-#include <mach/usb_trace.h>
+
 #include "ci13xxx_udc.h"
-
-#ifdef CONFIG_USB_G_LGE_ANDROID //build error fix 0820
-#include <mach/board_lge.h>
-#endif
-
-#ifdef CONFIG_USB_G_LGE_ANDROID_PFSC
-#include <mach/board_lge.h>
-
-#define PORTSC_PFSC BIT(24)
-#endif
 
 /* Turns on streaming. overrides CI13XXX_DISABLE_STREAMING */
 static unsigned int streaming;
@@ -149,21 +138,6 @@ static int ffs_nr(u32 x)
 
 	return n ? n-1 : 32;
 }
-
-struct ci13xxx_ebi_err_entry {
-	u32 *usb_req_buf;
-	u32 usb_req_length;
-	u32 ep_info;
-	struct ci13xxx_ebi_err_entry *next;
-};
-
-struct ci13xxx_ebi_err_data {
-	u32 ebi_err_addr;
-	u32 apkt0;
-	u32 apkt1;
-	struct ci13xxx_ebi_err_entry *ebi_err_entry;
-};
-static struct ci13xxx_ebi_err_data *ebi_err_data;
 
 /******************************************************************************
  * HW block
@@ -348,20 +322,14 @@ static int hw_device_init(void __iomem *base)
  */
 static int hw_device_reset(struct ci13xxx *udc)
 {
-#ifdef CONFIG_USB_G_LGE_ANDROID_PFSC
-    enum lge_boot_mode_type boot_mode;
-#endif
-	int delay_count = 25; /* 250 usec */
-
 	/* should flush & stop before reset */
 	hw_cwrite(CAP_ENDPTFLUSH, ~0, ~0);
 	hw_cwrite(CAP_USBCMD, USBCMD_RS, 0);
 
 	hw_cwrite(CAP_USBCMD, USBCMD_RST, USBCMD_RST);
-	while (delay_count--  && hw_cread(CAP_USBCMD, USBCMD_RST))
-		udelay(10);
-	if (delay_count < 0)
-		pr_err("USB controller reset failed\n");
+	while (hw_cread(CAP_USBCMD, USBCMD_RST))
+		udelay(10);             /* not RTOS friendly */
+
 
 	if (udc->udc_driver->notify_event)
 		udc->udc_driver->notify_event(udc,
@@ -388,22 +356,6 @@ static int hw_device_reset(struct ci13xxx *udc)
 		pr_err("lpm = %i", hw_bank.lpm);
 		return -ENODEV;
 	}
-
-#ifdef CONFIG_USB_G_LGE_ANDROID_PFSC
-    /* USB FS only used in 130K
-     *
-     * LGE_BOOT_MODE_FACTORY: 130K + QEM
-     * LGE_BOOT_MODE_PIFBOOT: 130K
-     * LGE_BOOT_MODE_FACTORY2: 56K + QEM
-     * LGE_BOOT_MODE_PIFBOOT2: 56K
-     */
-    boot_mode = lge_get_boot_mode();
-    if ((boot_mode == LGE_BOOT_MODE_FACTORY)  ||
-        (boot_mode == LGE_BOOT_MODE_PIFBOOT))
-    {
-        hw_cwrite(CAP_PORTSC, PORTSC_PFSC, PORTSC_PFSC);
-    }
-#endif
 
 	return 0;
 }
@@ -472,8 +424,7 @@ static int hw_ep_flush(int num, int dir)
 	int n = hw_ep_bit(num, dir);
 	struct ci13xxx_ep *mEp = &_udc->ci13xxx_ep[n];
 
-	/* Flush ep0 even when queue is empty */
-	if (_udc->skip_flush || (num && list_empty(&mEp->qh.queue)))
+	if (_udc->skip_flush || list_empty(&mEp->qh.queue))
 		return 0;
 
 	start = ktime_get();
@@ -841,8 +792,6 @@ static int hw_usb_set_address(u8 value)
  */
 static int hw_usb_reset(void)
 {
-	int delay_count = 10; /* 100 usec delay */
-
 	hw_usb_set_address(0);
 
 	/* ESS flushes only at end?!? */
@@ -855,10 +804,8 @@ static int hw_usb_reset(void)
 	hw_cwrite(CAP_ENDPTCOMPLETE,  0,  0);   /* writes its content */
 
 	/* wait until all bits cleared */
-	while (delay_count-- && hw_cread(CAP_ENDPTPRIME, ~0))
-		udelay(10);
-	if (delay_count < 0)
-		pr_err("ENDPTPRIME is not cleared during bus reset\n");
+	while (hw_cread(CAP_ENDPTPRIME, ~0))
+		udelay(10);             /* not RTOS friendly */
 
 	/* reset all endpoints ? */
 
@@ -1439,9 +1386,6 @@ static ssize_t show_registers(struct device *dev,
 		dev_err(dev, "[%s] EINVAL\n", __func__);
 		return 0;
 	}
-	dump = kmalloc(2048, GFP_KERNEL);
-	if (dump == NULL)
-		return -ENOMEM;
 
 	dump = kmalloc(sizeof(u32) * DUMP_ENTRIES, GFP_KERNEL);
 	if (!dump) {
@@ -1787,72 +1731,6 @@ __maybe_unused static int dbg_remove_files(struct device *dev)
 	device_remove_file(dev, &dev_attr_device);
 	device_remove_file(dev, &dev_attr_wakeup);
 	return 0;
-}
-
-static void dump_usb_info(void *ignore, unsigned int ebi_addr,
-	unsigned int ebi_apacket0, unsigned int ebi_apacket1)
-{
-	struct ci13xxx *udc = _udc;
-	unsigned long flags;
-	struct list_head   *ptr = NULL;
-	struct ci13xxx_req *req = NULL;
-	struct ci13xxx_ep *mEp;
-	unsigned i;
-	struct ci13xxx_ebi_err_entry *temp_dump;
-	static int count;
-	u32 epdir = 0;
-
-	if (count)
-		return;
-	count++;
-
-	pr_info("%s: USB EBI error detected\n", __func__);
-
-	ebi_err_data = kmalloc(sizeof(struct ci13xxx_ebi_err_data),
-				 GFP_ATOMIC);
-	if (!ebi_err_data) {
-		pr_err("%s: memory alloc failed for ebi_err_data\n", __func__);
-		return;
-	}
-
-	ebi_err_data->ebi_err_entry = kmalloc(
-					sizeof(struct ci13xxx_ebi_err_entry),
-					GFP_ATOMIC);
-	if (!ebi_err_data->ebi_err_entry) {
-		kfree(ebi_err_data);
-		pr_err("%s: memory alloc failed for ebi_err_entry\n", __func__);
-		return;
-	}
-
-	ebi_err_data->ebi_err_addr = ebi_addr;
-	ebi_err_data->apkt0 = ebi_apacket0;
-	ebi_err_data->apkt1 = ebi_apacket1;
-
-	temp_dump = ebi_err_data->ebi_err_entry;
-	pr_info("\n DUMPING USB Requests Information\n");
-	spin_lock_irqsave(udc->lock, flags);
-	for (i = 0; i < hw_ep_max; i++) {
-		list_for_each(ptr, &udc->ci13xxx_ep[i].qh.queue) {
-			mEp = &udc->ci13xxx_ep[i];
-			req = list_entry(ptr, struct ci13xxx_req, queue);
-
-			temp_dump->usb_req_buf = req->req.buf;
-			temp_dump->usb_req_length = req->req.length;
-			epdir = mEp->dir;
-			temp_dump->ep_info = mEp->num | (epdir << 15);
-
-			temp_dump->next = kmalloc(
-					  sizeof(struct ci13xxx_ebi_err_entry),
-					  GFP_ATOMIC);
-			if (!temp_dump->next) {
-				pr_err("%s: memory alloc failed\n", __func__);
-				spin_unlock_irqrestore(udc->lock, flags);
-				return;
-			}
-			temp_dump = temp_dump->next;
-		}
-	}
-	spin_unlock_irqrestore(udc->lock, flags);
 }
 
 /******************************************************************************
@@ -2340,15 +2218,9 @@ __acquires(udc->lock)
 
 	spin_unlock(udc->lock);
 
-#ifdef CONFIG_LGE_PM
 	/*stop charging upon reset */
-	if (udc->transceiver)
+	if (udc->transceiver && !udc->vbus_active)
 		usb_phy_set_power(udc->transceiver, 0);
-#else
-	/*stop charging upon reset */
-	if (udc->transceiver)
-		usb_phy_set_power(udc->transceiver, 0);
-#endif
 
 	retval = _gadget_stop_activity(&udc->gadget);
 	if (retval)
@@ -2788,7 +2660,6 @@ __acquires(udc->lock)
 					udc->remote_wakeup = 1;
 					err = isr_setup_status_phase(udc);
 					break;
-#ifdef CONFIG_USB_OTG
 				case USB_DEVICE_B_HNP_ENABLE:
 					udc->gadget.b_hnp_enable = 1;
 					err = isr_setup_status_phase(udc);
@@ -2799,17 +2670,6 @@ __acquires(udc->lock)
 					break;
 				case USB_DEVICE_A_ALT_HNP_SUPPORT:
 					break;
-#else	// Not CONFIG_USB_OTG
-				case USB_DEVICE_B_HNP_ENABLE:
-					err = 0;
-					break;
-				case USB_DEVICE_A_HNP_SUPPORT:
-					err = 0;
-					break;
-				case USB_DEVICE_A_ALT_HNP_SUPPORT:
-					err = 0;
-					break;
-#endif	//CONFIG_USB_OTG
 				case USB_DEVICE_TEST_MODE:
 					tmode = le16_to_cpu(req.wIndex) >> 8;
 					switch (tmode) {
@@ -2822,7 +2682,6 @@ __acquires(udc->lock)
 						err = isr_setup_status_phase(
 								udc);
 						break;
-#ifdef CONFIG_USB_OTG
 					case TEST_OTG_SRP_REQD:
 						udc->gadget.otg_srp_reqd = 1;
 						err = isr_setup_status_phase(
@@ -2833,14 +2692,6 @@ __acquires(udc->lock)
 						err = isr_setup_status_phase(
 								udc);
 						break;
-#else
-					case TEST_OTG_SRP_REQD:
-						err = 0;
-						break;
-					case TEST_OTG_HNP_REQD:
-						err = 0;
-						break;
-#endif
 					default:
 						break;
 					}
@@ -3407,6 +3258,7 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 static int ci13xxx_start(struct usb_gadget_driver *driver,
 		int (*bind)(struct usb_gadget *));
 static int ci13xxx_stop(struct usb_gadget_driver *driver);
+
 /**
  * Device operations part of the API to the USB controller hardware,
  * which don't involve endpoints (or i/o)
@@ -3607,6 +3459,7 @@ static int ci13xxx_stop(struct usb_gadget_driver *driver)
 
 	usb_ep_free_request(&udc->ep0in.ep, udc->status);
 	kfree(udc->status_buf);
+	udc->status_buf = NULL;
 
 	udc->gadget.dev.driver = NULL;
 
@@ -3824,11 +3677,6 @@ static int udc_probe(struct ci13xxx_udc_driver *driver, struct device *dev,
 	pm_runtime_no_callbacks(&udc->gadget.dev);
 	pm_runtime_enable(&udc->gadget.dev);
 
-	retval = register_trace_usb_daytona_invalid_access(dump_usb_info,
-								NULL);
-	if (retval)
-		pr_err("Registering trace failed\n");
-
 	_udc = udc;
 	return retval;
 
@@ -3862,17 +3710,11 @@ free_udc:
 static void udc_remove(void)
 {
 	struct ci13xxx *udc = _udc;
-	int retval;
 
 	if (udc == NULL) {
 		err("EINVAL");
 		return;
 	}
-	retval = unregister_trace_usb_daytona_invalid_access(dump_usb_info,
-									NULL);
-	if (retval)
-		pr_err("Unregistering trace failed\n");
-
 	usb_del_gadget_udc(&udc->gadget);
 
 	if (udc->transceiver) {

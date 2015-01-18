@@ -1,4 +1,3 @@
-
 /*
  *  Universal power supply monitor class
  *
@@ -130,32 +129,6 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_SERIAL_NUMBER,
-/* [START] sungsookim */
-#ifdef CONFIG_LGE_PM
-#ifdef CONFIG_LGE_PM_BATTERY_ID_CHECKER
-    POWER_SUPPLY_PROP_BATTERY_ID_CHECK,
-#endif
-	POWER_SUPPLY_PROP_PSEUDO_BATT,
-    POWER_SUPPLY_PROP_BLOCK_CHARGING,
-    POWER_SUPPLY_PROP_EXT_PWR_CHECK,
-/* LGE_S kwangjae1.lee@lge.com 2012-06-11 Add bms debugger */
-//    POWER_SUPPLY_PROP_BMS_BATT,
-/* LGE_E kwangjae1.lee@lge.com 2012-06-11 Add bms debugger */
-
-/*2012-07-11 Add battery present check in the testmode */
-	POWER_SUPPLY_PROP_REAL_BATT_PRESENT,
-/*2012-07-11 Add battery present check in the testmode */
-#ifdef CONFIG_BATTERY_MAX17047
-/*doosan.baek@lge.com 20121108 Add battery condition */
-    POWER_SUPPLY_PROP_BATTERY_CONDITION,
-    POWER_SUPPLY_PROP_BATTERY_AGE,
-#endif
-#endif
-#ifdef CONFIG_MACH_APQ8064_AWIFI
-	POWER_SUPPLY_PROP_VCHG,
-	POWER_SUPPLY_PROP_IUSB,
-#endif
-/* [END] */
 };
 
 enum power_supply_type {
@@ -298,10 +271,6 @@ static inline bool power_supply_is_amp_property(enum power_supply_property psp)
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
-#ifdef CONFIG_MACH_APQ8064_AWIFI
-	case POWER_SUPPLY_PROP_VCHG:
-	case POWER_SUPPLY_PROP_IUSB:
-#endif
 		return 1;
 	default:
 		break;

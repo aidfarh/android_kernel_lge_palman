@@ -157,9 +157,7 @@ void free_fib_info(struct fib_info *fi)
 		return;
 	}
 	change_nexthops(fi) {
-        if (!nexthop_nh->nh_dev)
-            continue;
-   if (nexthop_nh->nh_dev && nexthop_nh->nh_dev->pcpu_refcnt != NULL )//minjeon.kim@lge.com
+		if (nexthop_nh->nh_dev)
 			dev_put(nexthop_nh->nh_dev);
 		nexthop_nh->nh_dev = NULL;
 	} endfor_nexthops(fi);

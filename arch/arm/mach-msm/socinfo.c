@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,7 +35,6 @@ enum {
 	HW_PLATFORM_LIQUID  = 9,
 	/* Dragonboard platform id is assigned as 10 in CDT */
 	HW_PLATFORM_DRAGON	= 10,
-	HW_PLATFORM_QRD	= 11,
 	HW_PLATFORM_INVALID
 };
 
@@ -313,35 +312,6 @@ static struct socinfo_v1 dummy_socinfo = {
 	.format = 1,
 	.version = 1,
 };
-
-#if defined (CONFIG_LGE_PM)
-#if defined(CONFIG_MACH_APQ8064_GVAR_CMCC) || defined(CONFIG_MACH_APQ8064_L05E)  || defined(CONFIG_MACH_APQ8064_AWIFI)
-u16 *poweron_st = 0;
-uint16_t power_on_status_info_get(void)
-{
-    poweron_st = smem_alloc(SMEM_POWER_ON_STATUS_INFO, sizeof(poweron_st));
-
-    if( poweron_st == NULL ) return 0 ;
-    return *poweron_st;
-}
-EXPORT_SYMBOL(power_on_status_info_get);
-
-
-u32 *batt_info = 0;
-uint32_t battery_info_get(void)
-{
-    batt_info = smem_alloc(SMEM_BATT_INFO, sizeof(batt_info));
-
-    if (batt_info == NULL) {
-		pr_err("%s: smem_alloc returns NULL\n", __func__);
-		return 0;
-    }
-
-    return *batt_info;
-}
-EXPORT_SYMBOL(battery_info_get);
-#endif
-#endif
 
 uint32_t socinfo_get_id(void)
 {

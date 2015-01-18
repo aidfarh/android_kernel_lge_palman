@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -625,13 +625,8 @@ int mdp4_dtv_on(struct platform_device *pdev)
 /* timing generator off */
 static void mdp4_dtv_tg_off(struct vsycn_ctrl *vctrl)
 {
-	unsigned long flags;
-
-	spin_lock_irqsave(&vctrl->spin_lock, flags);
 	MDP_OUTP(MDP_BASE + DTV_BASE, 0); /* turn off timing generator */
-	spin_unlock_irqrestore(&vctrl->spin_lock, flags);
-
-	mdp4_dtv_wait4vsync(0);
+	msleep(20);
 }
 
 int mdp4_dtv_off(struct platform_device *pdev)
@@ -643,7 +638,6 @@ int mdp4_dtv_off(struct platform_device *pdev)
 	struct vsycn_ctrl *vctrl;
 	struct mdp4_overlay_pipe *pipe;
 	struct vsync_update *vp;
-	int mixer = 0;
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
@@ -651,15 +645,15 @@ int mdp4_dtv_off(struct platform_device *pdev)
 
 	vctrl = &vsync_ctrl_db[cndx];
 
-	mdp4_dtv_wait4vsync(cndx);
-
 	wake_up_interruptible_all(&vctrl->wait_queue);
+
+	mdp4_dtv_wait4vsync(cndx);
+	mdp4_unmap_sec_resource(mfd);
 
 	pipe = vctrl->base_pipe;
 	if (pipe != NULL) {
-		mixer = pipe->mixer_num;
 		/* sanity check, free pipes besides base layer */
-		mdp4_overlay_unset_mixer(mixer);
+		mdp4_overlay_unset_mixer(pipe->mixer_num);
 		if (hdmi_prim_display && mfd->ref_cnt == 0) {
 			/* adb stop */
 			if (pipe->pipe_type == OVERLAY_TYPE_BF)
@@ -669,7 +663,7 @@ int mdp4_dtv_off(struct platform_device *pdev)
 			vctrl->base_pipe = NULL;
 		} else {
 			mdp4_mixer_stage_down(pipe, 1);
-			mdp4_overlay_pipe_free(pipe, 1);
+			mdp4_overlay_pipe_free(pipe);
 			vctrl->base_pipe = NULL;
 		}
 	}
@@ -693,14 +687,6 @@ int mdp4_dtv_off(struct platform_device *pdev)
 
 	ret = panel_next_off(pdev);
 	mdp_footswitch_ctrl(FALSE);
-
-	/*
-	 * clean up ion freelist
-	 * there need two stage to empty ion free list
-	 * therefore need call unmap freelist twice
-	 */
-	mdp4_overlay_iommu_unmap_freelist(mixer);
-	mdp4_overlay_iommu_unmap_freelist(mixer);
 
 	/* Mdp clock disable */
 	mdp_clk_ctrl(0);
@@ -1123,7 +1109,7 @@ void mdp4_dtv_overlay(struct msm_fb_data_type *mfd)
 	}
 
 	mdp4_overlay_mdp_perf_upd(mfd, 1);
-	mdp4_dtv_pipe_commit(0, 1);
+	mdp4_dtv_pipe_commit(0, 0);
 	mdp4_overlay_mdp_perf_upd(mfd, 0);
 	mutex_unlock(&mfd->dma->ov_mutex);
 }

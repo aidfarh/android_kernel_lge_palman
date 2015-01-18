@@ -1315,10 +1315,10 @@ void usb_hnp_polling_work(struct work_struct *work)
 		goto reschedule;
 
 start_hnp:
-#if 0
-	do_unbind_rebind(udev, DO_UNBIND);
+#ifdef CONFIG_MACH_APQ8064_PALMAN
+	unbind_no_pm_drivers_interfaces(udev);
 #else
-    unbind_no_pm_drivers_interfaces(udev);
+	do_unbind_rebind(udev, DO_UNBIND);
 #endif
 	udev->do_remote_wakeup = device_may_wakeup(&udev->dev);
 	ret = usb_suspend_both(udev, PMSG_USER_SUSPEND);

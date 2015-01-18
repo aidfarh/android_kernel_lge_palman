@@ -11,14 +11,14 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-/*=======================================================================================
+/*                                                                                       
 
-                   		 WARNING !!
+                                
 
- If you modify this file, it may give rise to serious Factory mass-production problem,
- Sure please contact us security team. [lg-security@lge.com]
+                                                                                      
+                                                            
 
-=======================================================================================*/
+                                                                                       */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/device.h>
@@ -113,7 +113,7 @@ int qfuse_read_single_row(u32 fuse_addr, u32 addr_type, u32 * r_buf);
 
 static struct qfprom_blow_data blow_data[] = {
 	/* addr                        LSB         MSB */
-	{ QFPROM_OEM_CONFIG,         0x00000031, 0x00000000}, /* OEM ID        */
+	{ QFPROM_OEM_CONFIG,         0x00200031, 0x00000040}, /* OEM ID + PRODUCT_ID: 0x1001i(A-Stock) */
 	{ QFPROM_SECURE_BOOT_ENABLE, 0x00000020, 0x00000000}, /* SECURE ENABLE */
 	{ QFPROM_DEBUG_ENABLE,       0xC1300000, 0x0000006F}, /* JTAG DISABLE */
 	{ QFPROM_CHECK_HW_KEY,       0x0,        0x0},

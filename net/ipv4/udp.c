@@ -931,8 +931,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		flowi4_init_output(fl4, ipc.oif, sk->sk_mark, tos,
 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
 				   inet_sk_flowi_flags(sk)|FLOWI_FLAG_CAN_SLEEP,
-				   faddr, saddr, dport, inet->inet_sport,
-				   sock_i_uid(sk));
+				   faddr, saddr, dport, inet->inet_sport);
 
 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
 		rt = ip_route_output_flow(net, fl4, sk);
@@ -1188,10 +1187,6 @@ try_again:
 				  &peeked, &off, &err);
 	if (!skb)
 		goto out;
-	if (ccs_socket_post_recvmsg_permission(sk, skb, flags)) {
-		err = -EAGAIN; /* Hope less harmful than -EPERM. */
-		goto out;
-	}
 
 	ulen = skb->len - sizeof(struct udphdr);
 	copied = len;

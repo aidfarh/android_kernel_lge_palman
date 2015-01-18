@@ -1,6 +1,6 @@
 /* drivers/tty/smux_test.c
  *
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -20,17 +20,11 @@
 #include <linux/delay.h>
 #include <linux/completion.h>
 #include <linux/termios.h>
-#include <linux/sched.h>
 #include <linux/smux.h>
 #include <mach/subsystem_restart.h>
 #include "smux_private.h"
 
 #define DEBUG_BUFMAX 4096
-#define RED_ZONE_SIZE	16
-#define RED_ZONE_PRE_CH	0xAB
-#define RED_ZONE_POS_CH	0xBA
-#define SMUX_REMOTE_INACTIVITY_TIME_MS	50
-#define SMUX_REMOTE_DELAY_TIME_MS		250
 
 /**
  * Unit test assertion for logging test cases.
@@ -144,7 +138,7 @@ struct tiocm_test_vector {
 /**
  * Allocates a new buffer for SMUX for every call.
  */
-static int get_rx_buffer(void *priv, void **pkt_priv, void **buffer, int size)
+int get_rx_buffer(void *priv, void **pkt_priv, void **buffer, int size)
 {
 	void *rx_buf;
 
@@ -194,8 +188,6 @@ struct smux_mock_callback {
 	int event_high_wm;
 	int event_rx_retry_high_wm;
 	int event_rx_retry_low_wm;
-	int event_local_closed;
-	int event_remote_closed;
 
 	/* TIOCM changes */
 	int event_tiocm;
@@ -224,7 +216,7 @@ static int get_rx_buffer_mock(void *priv, void **pkt_priv,
  *
  * @cb  Mock callback data
  */
-static void mock_cb_data_init(struct smux_mock_callback *cb)
+void mock_cb_data_init(struct smux_mock_callback *cb)
 {
 	init_completion(&cb->cb_completion);
 	spin_lock_init(&cb->lock);
@@ -240,7 +232,7 @@ static void mock_cb_data_init(struct smux_mock_callback *cb)
  *
  * All packets are freed and counters reset to zero.
  */
-static void mock_cb_data_reset(struct smux_mock_callback *cb)
+void mock_cb_data_reset(struct smux_mock_callback *cb)
 {
 	cb->cb_count = 0;
 	INIT_COMPLETION(cb->cb_completion);
@@ -251,8 +243,6 @@ static void mock_cb_data_reset(struct smux_mock_callback *cb)
 	cb->event_high_wm = 0;
 	cb->event_rx_retry_high_wm = 0;
 	cb->event_rx_retry_low_wm = 0;
-	cb->event_local_closed = 0;
-	cb->event_remote_closed = 0;
 	cb->event_tiocm = 0;
 	cb->tiocm_meta.tiocm_old = 0;
 	cb->tiocm_meta.tiocm_new = 0;
@@ -315,8 +305,6 @@ static int mock_cb_data_print(const struct smux_mock_callback *cb,
 		"\tevent_high_wm=%d\n"
 		"\tevent_rx_retry_high_wm=%d\n"
 		"\tevent_rx_retry_low_wm=%d\n"
-		"\tevent_local_closed=%d\n"
-		"\tevent_remote_closed=%d\n"
 		"\tevent_tiocm=%d\n"
 		"\tevent_read_done=%d\n"
 		"\tevent_read_failed=%d\n"
@@ -335,8 +323,6 @@ static int mock_cb_data_print(const struct smux_mock_callback *cb,
 		cb->event_high_wm,
 		cb->event_rx_retry_high_wm,
 		cb->event_rx_retry_low_wm,
-		cb->event_local_closed,
-		cb->event_remote_closed,
 		cb->event_tiocm,
 		cb->event_read_done,
 		cb->event_read_failed,
@@ -355,7 +341,7 @@ static int mock_cb_data_print(const struct smux_mock_callback *cb,
  * Mock object event callback.  Used to logs events for analysis in the unit
  * tests.
  */
-static void smux_mock_cb(void *priv, int event, const void *metadata)
+void smux_mock_cb(void *priv, int event, const void *metadata)
 {
 	struct smux_mock_callback *cb_data_ptr;
 	struct mock_write_event *write_event_meta;
@@ -475,22 +461,6 @@ static void smux_mock_cb(void *priv, int event, const void *metadata)
 		spin_unlock_irqrestore(&cb_data_ptr->lock, flags);
 		break;
 
-	case SMUX_LOCAL_CLOSED:
-		spin_lock_irqsave(&cb_data_ptr->lock, flags);
-		++cb_data_ptr->event_local_closed;
-		cb_data_ptr->event_disconnected_ssr =
-			((struct smux_meta_disconnected *)metadata)->is_ssr;
-		spin_unlock_irqrestore(&cb_data_ptr->lock, flags);
-		break;
-
-	case SMUX_REMOTE_CLOSED:
-		spin_lock_irqsave(&cb_data_ptr->lock, flags);
-		++cb_data_ptr->event_remote_closed;
-		cb_data_ptr->event_disconnected_ssr =
-			((struct smux_meta_disconnected *)metadata)->is_ssr;
-		spin_unlock_irqrestore(&cb_data_ptr->lock, flags);
-		break;
-
 	default:
 		pr_err("%s: unknown event %d\n", __func__, event);
 	};
@@ -548,17 +518,12 @@ static int smux_ut_basic_core(char *buf, int max,
 		for (; vectors->data != NULL; ++vectors) {
 			const char *test_data = vectors->data;
 			const unsigned test_len = vectors->len;
-			unsigned long long start_t;
-			unsigned long long end_t;
-			unsigned long long val;
-			unsigned long rem;
 
 			i += scnprintf(buf + i, max - i,
-					"Writing vector %p len %d: ",
+					"Writing vector %p len %d\n",
 					test_data, test_len);
 
 			/* write data */
-			start_t = sched_clock();
 			msm_smux_write(SMUX_TEST_LCID, (void *)0xCAFEFACE,
 					test_data, test_len);
 			UT_ASSERT_INT(ret, ==, 0);
@@ -573,7 +538,6 @@ static int smux_ut_basic_core(char *buf, int max,
 					(int)wait_for_completion_timeout(
 						&cb_data.cb_completion, HZ),
 					>, 0);
-			end_t = sched_clock();
 
 			UT_ASSERT_INT(cb_data.cb_count, >=, 1);
 			UT_ASSERT_INT(cb_data.event_write_done, ==, 1);
@@ -605,46 +569,29 @@ static int smux_ut_basic_core(char *buf, int max,
 				hex_dump_to_buffer(test_data, test_len,
 					16, 1, linebuff, sizeof(linebuff), 1);
 				i += scnprintf(buf + i, max - i,
-					"Failed\nExpected:\n%s\n\n", linebuff);
+						"Expected:\n%s\n\n", linebuff);
 
 				hex_dump_to_buffer(read_event->meta.buffer,
 					read_event->meta.len,
 					16, 1, linebuff, sizeof(linebuff), 1);
 				i += scnprintf(buf + i, max - i,
-					"Failed\nActual:\n%s\n", linebuff);
+						"Actual:\n%s\n", linebuff);
 				failed = 1;
 				break;
 			}
-
-			/* calculate throughput stats */
-			val = end_t - start_t;
-			rem = do_div(val, 1000);
-			i += scnprintf(buf + i, max - i,
-				"OK - %u us",
-				(unsigned int)val);
-
-			val = 1000000000LL * 2 * test_len;
-			rem = do_div(val, end_t - start_t);
-			i += scnprintf(buf + i, max - i,
-				" (%u kB/sec)\n", (unsigned int)val);
 			mock_cb_data_reset(&cb_data);
 		}
 
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -735,7 +682,7 @@ static int smux_ut_remote_basic(char *buf, int max)
  * Run a basic loopback test followed by a subsystem restart and then another
  * loopback test.
  */
-static int smux_ut_ssr_remote_basic(char *buf, int max)
+static int smux_ut_remote_ssr_basic(char *buf, int max)
 {
 	const struct test_vector test_data[] = {
 		{"hello\0world\n", sizeof("hello\0world\n")},
@@ -776,7 +723,7 @@ static int smux_ut_ssr_remote_basic(char *buf, int max)
 /**
  * Verify Subsystem Restart Support During Port Open
  */
-static int smux_ut_ssr_remote_open(char *buf, int max)
+static int smux_ut_remote_ssr_open(char *buf, int max)
 {
 	static struct smux_mock_callback cb_data;
 	static int cb_initialized;
@@ -812,18 +759,13 @@ static int smux_ut_ssr_remote_open(char *buf, int max)
 
 		/* verify SSR events */
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, 10*HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, 5*HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 1);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
 		/* close port */
@@ -863,7 +805,7 @@ static int smux_ut_ssr_remote_open(char *buf, int max)
  *
  * @returns Number of bytes written to @buf
  */
-static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
+static int smux_ut_remote_ssr_rx_buff_retry(char *buf, int max)
 {
 	static struct smux_mock_callback cb_data;
 	static int cb_initialized;
@@ -928,8 +870,6 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 			break;
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 1);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
 		/* close port */
@@ -957,10 +897,9 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 	mock_cb_data_reset(&cb_data);
 	return i;
 }
-
 /**
  * Fill test pattern into provided buffer including an optional
- * redzone before and after the buffer.
+ * redzone 16 bytes before and 16 bytes after the buffer.
  *
  * buf ---------
  *      redzone
@@ -970,75 +909,70 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
  *      redzone
  *     ---------
  *
- * @buf  Pointer to the buffer of size len or len+2*RED_ZONE_SIZE (redzone)
- * @len  Length of the *data* buffer (excluding the extra redzone buffers)
+ * @buf  Pointer to the buffer of size len or len+32 (redzone)
+ * @len  Length of the *data* buffer (excluding 32-byte redzone)
  * @redzone If true, adds redzone data
  *
- * @returns pointer to buffer (buf + RED_ZONE_SIZE if redzone enabled)
+ * @returns pointer to buffer (buf + 16 if redzone enabled)
  */
-static uint8_t *test_pattern_fill(char *buf, int len, int redzone)
+uint8_t *test_pattern_fill(char *buf, int len, int redzone)
 {
-	char *buf_ptr;
+	void *ret;
 	uint8_t ch;
 
+	ret = buf;
 	if (redzone) {
-		memset(buf, RED_ZONE_PRE_CH, RED_ZONE_SIZE);
-		buf += RED_ZONE_SIZE;
-		memset(buf + len, RED_ZONE_POS_CH, RED_ZONE_SIZE);
+		memset((char *)buf, 0xAB, 16);
+		memset((char *)buf + len, 0xBA, 16);
+		ret += 16;
 	}
 
-	for (ch = 0, buf_ptr = buf; len > 0; --len, ++ch)
-		*buf_ptr++ = (char)ch;
+	/* fill with test pattern */
+	for (ch = 0; len > 0; --len, ++ch)
+		*buf++ = (char)ch;
 
-	return buf;
+	return ret;
 }
 
 /**
  * Verify test pattern generated by test_pattern_fill.
  *
  * @buf_ptr    Pointer to buffer pointer
- * @len        Length of the *data* buffer (excluding redzone bytes)
+ * @len        Length of the *data* buffer (excluding 32-byte redzone)
  * @redzone    If true, verifies redzone and adjusts *buf_ptr
  * @errmsg     Buffer for error message
  * @errmsg_max Size of error message buffer
  *
  * @returns    0 for success; length of error message otherwise
  */
-static unsigned test_pattern_verify(char **buf_ptr, int len, int redzone,
+unsigned test_pattern_verify(char **buf_ptr, int len, int redzone,
 					char *errmsg, int errmsg_max)
 {
 	int n;
 	int i = 0;
 	char linebuff[80];
-	char *zone_ptr;
 
 	if (redzone) {
-		*buf_ptr -= RED_ZONE_SIZE;
-		zone_ptr = *buf_ptr;
+		*buf_ptr -= 16;
 
 		/* verify prefix redzone */
-		for (n = 0; n < RED_ZONE_SIZE; ++n) {
-			if (zone_ptr[n] != RED_ZONE_PRE_CH) {
-				hex_dump_to_buffer(zone_ptr, RED_ZONE_SIZE,
-					RED_ZONE_SIZE, 1, linebuff,
-					sizeof(linebuff), 1);
+		for (n = 0; n < 16; ++n) {
+			if (*buf_ptr[n] != 0xAB) {
+				hex_dump_to_buffer(*buf_ptr, 16,
+					16, 1, linebuff, sizeof(linebuff), 1);
 				i += scnprintf(errmsg + i, errmsg_max - i,
-					"Pre-redzone violation: %s\n",
-					linebuff);
+					"Redzone violation: %s\n", linebuff);
 				break;
 			}
 		}
 
 		/* verify postfix redzone */
-		zone_ptr = *buf_ptr + RED_ZONE_SIZE + len;
-		for (n = 0; n < RED_ZONE_SIZE; ++n) {
-			if (zone_ptr[n] != RED_ZONE_POS_CH) {
-				hex_dump_to_buffer(zone_ptr, RED_ZONE_SIZE,
-					RED_ZONE_SIZE, 1, linebuff,
-					sizeof(linebuff), 1);
+		for (n = 0; n < 16; ++n) {
+			if (*buf_ptr[len + n] != 0xBA) {
+				hex_dump_to_buffer(&(*buf_ptr)[len], 16,
+					16, 1, linebuff, sizeof(linebuff), 1);
 				i += scnprintf(errmsg + i, errmsg_max - i,
-					"Post-redzone violation: %s\n",
-					linebuff);
+					"Redzone violation: %s\n", linebuff);
 				break;
 			}
 		}
@@ -1067,7 +1001,6 @@ static int smux_ut_loopback_big_pkt(char *buf, int max, const char *name)
 		{0, 256},
 		{0, 512},
 		{0, 1024},
-		{0, 1500},
 		{0, 2048},
 		{0, 4096},
 		{0, 0},
@@ -1078,7 +1011,9 @@ static int smux_ut_loopback_big_pkt(char *buf, int max, const char *name)
 
 	/* generate test data */
 	for (tv = test_data; tv->len > 0; ++tv) {
-		tv->data = kmalloc(tv->len + 2 * RED_ZONE_SIZE, GFP_KERNEL);
+		tv->data = kmalloc(tv->len + 32, GFP_KERNEL);
+		pr_err("%s: allocating %p len %d\n",
+				__func__, tv->data, tv->len);
 		if (!tv->data) {
 			i += scnprintf(buf + i, max - i,
 					"%s: Unable to allocate %d bytes\n",
@@ -1086,7 +1021,7 @@ static int smux_ut_loopback_big_pkt(char *buf, int max, const char *name)
 			failed = 1;
 			goto out;
 		}
-		tv->data = test_pattern_fill((uint8_t *)tv->data, tv->len, 1);
+		test_pattern_fill((uint8_t *)tv->data, tv->len, 1);
 	}
 
 	/* run test */
@@ -1103,9 +1038,11 @@ out:
 	}
 
 	for (tv = test_data; tv->len > 0; ++tv) {
-		if (tv->data) {
+		if (!tv->data) {
 			i += test_pattern_verify((char **)&tv->data,
 						tv->len, 1, buf + i, max - i);
+			pr_err("%s: freeing %p len %d\n", __func__,
+							tv->data, tv->len);
 			kfree(tv->data);
 		}
 	}
@@ -1170,59 +1107,6 @@ static int smux_ut_remote_big_pkt(char *buf, int max)
 				"%s: Unable to set loopback mode\n",
 				__func__);
 	}
-
-	return i;
-}
-
-/**
- * Run a large packet test for throughput metrics.
- *
- * Repeatedly send a packet for 100 iterations to get throughput metrics.
- */
-static int smux_ut_remote_throughput(char *buf, int max)
-{
-	struct test_vector test_data[] = {
-		{0, 1500},
-		{0, 0},
-	};
-	int failed = 0;
-	int i = 0;
-	int loop = 0;
-	struct test_vector *tv;
-	int ret;
-
-	/* generate test data */
-	for (tv = test_data; tv->len > 0; ++tv) {
-		tv->data = kmalloc(tv->len, GFP_KERNEL);
-		if (!tv->data) {
-			i += scnprintf(buf + i, max - i,
-					"%s: Unable to allocate %d bytes\n",
-					__func__, tv->len);
-			failed = 1;
-			goto out;
-		}
-		test_pattern_fill((uint8_t *)tv->data, tv->len, 0);
-	}
-
-	/* run test */
-	i += scnprintf(buf + i, max - i, "Running %s\n", __func__);
-	while (!failed && loop < 100) {
-		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
-				SMUX_CH_OPTION_REMOTE_LOOPBACK, 0);
-		UT_ASSERT_INT(ret, ==, 0);
-
-		i += smux_ut_basic_core(buf + i, max - i, test_data, __func__);
-		++loop;
-	}
-
-out:
-	if (failed) {
-		pr_err("%s: Failed\n", __func__);
-		i += scnprintf(buf + i, max - i, "\tFailed\n");
-	}
-
-	for (tv = test_data; tv->len > 0; ++tv)
-			kfree(tv->data);
 
 	return i;
 }
@@ -1308,18 +1192,13 @@ static int smux_ut_tiocm(char *buf, int max, const char *name)
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -1483,18 +1362,13 @@ static int smux_ut_local_wm(char *buf, int max)
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -1598,18 +1472,13 @@ static int smux_ut_local_smuxld_receive_buf(char *buf, int max)
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -1935,18 +1804,13 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -2066,18 +1930,13 @@ static int smux_ut_local_get_rx_buff_retry_auto(char *buf, int max)
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -2200,18 +2059,13 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
-		while (cb_data.cb_count < 3) {
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ),
-				>, 0);
-			INIT_COMPLETION(cb_data.cb_completion);
-		}
-		UT_ASSERT_INT(cb_data.cb_count, ==, 3);
+		UT_ASSERT_INT(
+			(int)wait_for_completion_timeout(
+				&cb_data.cb_completion, HZ),
+			>, 0);
+		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected, ==, 1);
 		UT_ASSERT_INT(cb_data.event_disconnected_ssr, ==, 0);
-		UT_ASSERT_INT(cb_data.event_local_closed, ==, 1);
-		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		break;
 	}
 
@@ -2226,126 +2080,6 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 		msm_smux_close(SMUX_TEST_LCID);
 	}
 	mock_cb_data_reset(&cb_data);
-	return i;
-}
-
-/**
- * Verify Remote-initiated wakeup test case.
- *
- * @buf       Output buffer for failure/status messages
- * @max       Size of @buf
- */
-static int smux_ut_remote_initiated_wakeup(char *buf, int max)
-{
-	int i = 0;
-	int failed = 0;
-	static struct smux_mock_callback cb_data;
-	static int cb_initialized;
-	int ret;
-
-	if (!cb_initialized)
-		mock_cb_data_init(&cb_data);
-
-	smux_set_loopback_data_reply_delay(SMUX_REMOTE_DELAY_TIME_MS);
-	mock_cb_data_reset(&cb_data);
-	do {
-		unsigned long start_j;
-		unsigned transfer_time;
-		unsigned lwakeups_start;
-		unsigned rwakeups_start;
-		unsigned lwakeups_end;
-		unsigned rwakeups_end;
-		unsigned lwakeup_delta;
-		unsigned rwakeup_delta;
-
-		/* open port */
-		ret = msm_smux_open(SMUX_TEST_LCID, &cb_data, smux_mock_cb,
-					get_rx_buffer);
-		UT_ASSERT_INT(ret, ==, 0);
-		UT_ASSERT_INT(
-			(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ), >, 0);
-		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
-		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
-		mock_cb_data_reset(&cb_data);
-
-		/* do local wakeup test and send echo packet */
-		msleep(SMUX_REMOTE_INACTIVITY_TIME_MS);
-		smux_get_wakeup_counts(&lwakeups_start, &rwakeups_start);
-		msm_smux_write(SMUX_TEST_LCID, (void *)0x12345678,
-				"Hello", 5);
-		UT_ASSERT_INT(ret, ==, 0);
-		UT_ASSERT_INT(
-			(int)wait_for_completion_timeout(
-					&cb_data.cb_completion, HZ), >, 0);
-		UT_ASSERT_INT(cb_data.cb_count, ==, 1);
-		UT_ASSERT_INT(cb_data.event_write_done, ==, 1);
-		mock_cb_data_reset(&cb_data);
-
-		/* verify local initiated wakeup */
-		smux_get_wakeup_counts(&lwakeups_end, &rwakeups_end);
-		if (lwakeups_end > lwakeups_start)
-			i += scnprintf(buf + i, max - i,
-					"\tGood - have Apps-initiated wakeup\n");
-		else
-			i += scnprintf(buf + i, max - i,
-					"\tBad - no Apps-initiated wakeup\n");
-
-		/* verify remote wakeup and echo response */
-		smux_get_wakeup_counts(&lwakeups_start, &rwakeups_start);
-		start_j = jiffies;
-		INIT_COMPLETION(cb_data.cb_completion);
-		if (!cb_data.event_read_done)
-			UT_ASSERT_INT(
-				(int)wait_for_completion_timeout(
-					&cb_data.cb_completion,
-					SMUX_REMOTE_DELAY_TIME_MS * 2),
-				>, 0);
-		transfer_time = (unsigned)jiffies_to_msecs(jiffies - start_j);
-		UT_ASSERT_INT(cb_data.event_read_done, ==, 1);
-		UT_ASSERT_INT_IN_RANGE(transfer_time,
-			SMUX_REMOTE_DELAY_TIME_MS -
-			SMUX_REMOTE_INACTIVITY_TIME_MS,
-			SMUX_REMOTE_DELAY_TIME_MS +
-			SMUX_REMOTE_INACTIVITY_TIME_MS);
-		smux_get_wakeup_counts(&lwakeups_end, &rwakeups_end);
-
-		lwakeup_delta = lwakeups_end - lwakeups_end;
-		rwakeup_delta = rwakeups_end - rwakeups_end;
-		if (rwakeup_delta && lwakeup_delta) {
-			i += scnprintf(buf + i, max - i,
-					"\tBoth local and remote wakeup - re-run test (transfer time %d ms)\n",
-					transfer_time);
-			failed = 1;
-			break;
-		} else if (lwakeup_delta) {
-			i += scnprintf(buf + i, max - i,
-					"\tLocal wakeup only (transfer time %d ms) - FAIL\n",
-					transfer_time);
-			failed = 1;
-			break;
-		} else {
-			i += scnprintf(buf + i, max - i,
-					"\tRemote wakeup verified (transfer time %d ms) - OK\n",
-					transfer_time);
-		}
-	} while (0);
-
-	if (!failed) {
-		i += scnprintf(buf + i, max - i, "\tOK\n");
-	} else {
-		pr_err("%s: Failed\n", __func__);
-		i += scnprintf(buf + i, max - i, "\tFailed\n");
-		i += mock_cb_data_print(&cb_data, buf + i, max - i);
-	}
-
-	mock_cb_data_reset(&cb_data);
-	msm_smux_close(SMUX_TEST_LCID);
-	wait_for_completion_timeout(&cb_data.cb_completion, HZ);
-
-	mock_cb_data_reset(&cb_data);
-	smux_set_loopback_data_reply_delay(0);
-
 	return i;
 }
 
@@ -2414,18 +2148,15 @@ static int __init smux_debugfs_init(void)
 			smux_ut_local_get_rx_buff_retry);
 	debug_create("ut_local_get_rx_buff_retry_auto", 0444, dent,
 			smux_ut_local_get_rx_buff_retry_auto);
-	debug_create("ut_ssr_remote_basic", 0444, dent,
-			smux_ut_ssr_remote_basic);
-	debug_create("ut_ssr_remote_open", 0444, dent,
-			smux_ut_ssr_remote_open);
-	debug_create("ut_ssr_remote_rx_buff_retry", 0444, dent,
-			smux_ut_ssr_remote_rx_buff_retry);
+	debug_create("ut_remote_ssr_basic", 0444, dent,
+			smux_ut_remote_ssr_basic);
+	debug_create("ut_remote_ssr_open", 0444, dent,
+			smux_ut_remote_ssr_open);
+	debug_create("ut_remote_ssr_rx_buff_retry", 0444, dent,
+			smux_ut_remote_ssr_rx_buff_retry);
 	debug_create("ut_remote_tx_stop", 0444, dent,
 			smux_ut_remote_tx_stop);
-	debug_create("ut_remote_throughput", 0444, dent,
-			smux_ut_remote_throughput);
-	debug_create("ut_remote_initiated_wakeup", 0444, dent,
-			smux_ut_remote_initiated_wakeup);
+
 	return 0;
 }
 

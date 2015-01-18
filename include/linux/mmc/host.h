@@ -18,7 +18,6 @@
 
 #include <linux/mmc/core.h>
 #include <linux/mmc/pm.h>
-#include <linux/err.h>
 
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
@@ -60,8 +59,6 @@ struct mmc_ios {
 #define MMC_TIMING_UHS_SDR104	4
 #define MMC_TIMING_UHS_DDR50	5
 #define MMC_TIMING_MMC_HS200	6
-
-	unsigned char	ddr;			/* dual data rate used */
 
 #define MMC_SDR_MODE		0
 #define MMC_1_2V_DDR_MODE	1
@@ -352,7 +349,6 @@ struct mmc_host {
 	} perf;
 	bool perf_enable;
 #endif
-
 	struct mmc_ios saved_ios;
 	unsigned long		private[0] ____cacheline_aligned;
 };
@@ -408,9 +404,6 @@ static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 {
 	host->ops->enable_sdio_irq(host, 0);
 	host->sdio_irq_pending = true;
-
-	if(!atomic_read(&host->sdio_irq_thread_abort)
-		&& !IS_ERR_OR_NULL(host->sdio_irq_thread))
 	wake_up_process(host->sdio_irq_thread);
 }
 
@@ -439,9 +432,6 @@ int mmc_card_awake(struct mmc_host *host);
 int mmc_card_sleep(struct mmc_host *host);
 int mmc_card_can_sleep(struct mmc_host *host);
 
-int mmc_host_enable(struct mmc_host *host);
-int mmc_host_disable(struct mmc_host *host);
-int mmc_host_lazy_disable(struct mmc_host *host);
 int mmc_pm_notify(struct notifier_block *notify_block, unsigned long, void *);
 
 /* Module parameter */
@@ -470,14 +460,6 @@ static inline int mmc_host_cmd23(struct mmc_host *host)
 static inline int mmc_boot_partition_access(struct mmc_host *host)
 {
 	return !(host->caps2 & MMC_CAP2_BOOTPART_NOACC);
-}
-
-static inline int mmc_host_uhs(struct mmc_host *host)
-{
-	return host->caps &
-		(MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
-		 MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_SDR104 |
-		 MMC_CAP_UHS_DDR50);
 }
 
 #ifdef CONFIG_MMC_CLKGATE

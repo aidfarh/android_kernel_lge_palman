@@ -11,8 +11,8 @@
   * GNU General Public License for more details.
   */
 
-//#ifndef __LINUX_ANDROID_VIBRATOR_H
-//#define __LINUX_ANDROID_VIBRATOR_H
+#ifndef __LINUX_ANDROID_IRRC_H
+#define __LINUX_ANDROID_IRRC_H
 
 /* android vibrator platform data */
 struct android_irrc_platform_data {
@@ -20,7 +20,6 @@ struct android_irrc_platform_data {
 	int (*irrc_init)(void);
 	int (*pwm_set)(int enable, int gain, int n_value); /* PWM Set Function */
 };
-
 
 /* Debug Mask setting */
 #define IRRC_DEBUG_PRINT (1)
@@ -30,7 +29,7 @@ struct android_irrc_platform_data {
 #if (IRRC_INFO_PRINT)
 #define INFO_MSG(fmt, args...) \
 			printk(KERN_INFO "[%s] " \
-				fmt, __FUNCTION__, ##args);
+				fmt, __func__, ##args);
 #else
 #define INFO_MSG(fmt, args...)
 #endif
@@ -38,7 +37,7 @@ struct android_irrc_platform_data {
 #if (IRRC_DEBUG_PRINT)
 #define DEBUG_MSG(fmt, args...) \
 			printk(KERN_INFO "[%s %d] " \
-				fmt, __FUNCTION__, __LINE__, ##args);
+				fmt, __func__, __LINE__, ##args);
 #else
 #define DEBUG_MSG(fmt, args...)
 #endif
@@ -46,15 +45,15 @@ struct android_irrc_platform_data {
 #if (IRRC_ERROR_PRINT)
 #define ERR_MSG(fmt, args...) \
 			printk(KERN_ERR "[%s %d] " \
-				fmt, __FUNCTION__, __LINE__, ##args);
+				fmt, __func__, __LINE__, ##args);
 #else
 #define ERR_MSG(fmt, args...)
 #endif
-
 
 #define IRRC_IOCTL_MAGIC 'a'
 
 #define IRRC_START        _IOW(IRRC_IOCTL_MAGIC, 0, int)
 #define IRRC_STOP         _IOW(IRRC_IOCTL_MAGIC, 1, int)
 #define IRRC_POWER        _IOW(IRRC_IOCTL_MAGIC, 2, int)
-//#endif
+
+#endif /* __LINUX_ANDROID_IRRC_H */

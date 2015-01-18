@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -266,15 +266,11 @@ int wfd_allocate_input_buffers(struct wfd_device *wfd_dev,
 		mmap_context.ion_client = wfd_dev->ion_client;
 		rc = v4l2_subdev_call(&wfd_dev->enc_sdev, core, ioctl,
 				ENC_MMAP, &mmap_context);
-		if (rc) {
+		if (rc || !enc_mregion->paddr) {
 			WFD_MSG_ERR("Failed to map input memory\n");
 			goto alloc_fail;
-		} else if (!enc_mregion->paddr) {
-			WFD_MSG_ERR("ENC_MMAP returned success" \
-				"but failed to map input memory\n");
-			rc = -EINVAL;
-			goto alloc_fail;
 		}
+
 		WFD_MSG_DBG("NOTE: enc paddr = [%p->%p], kvaddr = %p\n",
 				enc_mregion->paddr, (int8_t *)
 				enc_mregion->paddr + enc_mregion->size,
@@ -302,18 +298,10 @@ int wfd_allocate_input_buffers(struct wfd_device *wfd_dev,
 		rc = v4l2_subdev_call(&wfd_dev->mdp_sdev, core, ioctl,
 				MDP_MMAP, (void *)&mmap_context);
 
-		if (rc) {
+		if (rc || !mdp_mregion->paddr) {
 			WFD_MSG_ERR(
 				"Failed to map to mdp, rc = %d, paddr = 0x%p\n",
 				rc, mdp_mregion->paddr);
-			mdp_mregion->kvaddr = NULL;
-			mdp_mregion->paddr = NULL;
-			mdp_mregion->ion_handle = NULL;
-			goto mdp_mmap_fail;
-		} else if (!mdp_mregion->paddr) {
-			WFD_MSG_ERR("MDP_MMAP returned success" \
-				"but failed to map to MDP\n");
-			rc = -EINVAL;
 			mdp_mregion->kvaddr = NULL;
 			mdp_mregion->paddr = NULL;
 			mdp_mregion->ion_handle = NULL;
@@ -501,12 +489,6 @@ int wfd_vidbuf_buf_init(struct vb2_buffer *vb)
 		(struct wfd_device *)video_drvdata(priv_data);
 	struct mem_info *minfo = vb2_plane_cookie(vb, 0);
 	struct mem_region mregion;
-/* LGE_CHANGE_S : youngwook.song@lge.com ; this is for WBT */
-	if (minfo == NULL) {
-		WFD_MSG_ERR("wfd_vidbuf_buf_init has been failed, since allocation failed");
-		return -EINVAL;
-	}
-/* LGE_CHANGE_E : youngwook.song@lge.com ; this is for WBT */
 	mregion.fd = minfo->fd;
 	mregion.offset = minfo->offset;
 	mregion.cookie = (u32)vb;
@@ -717,12 +699,6 @@ void wfd_vidbuf_buf_queue(struct vb2_buffer *vb)
 	struct wfd_inst *inst = (struct wfd_inst *)priv_data->private_data;
 	struct mem_region mregion;
 	struct mem_info *minfo = vb2_plane_cookie(vb, 0);
-/* LGE_CHANGE_S : youngwook.song@lge.com ; this is for WBT */
-	if (minfo == NULL) {
-		WFD_MSG_ERR("wfd_vidbuf_buf_init has been failed, since allocation failed");
-		return;
-	}
-/* LGE_CHANGE_E : youngwook.song@lge.com ; this is for WBT */
 	mregion.fd = minfo->fd;
 	mregion.offset = minfo->offset;
 	mregion.cookie = (u32)vb;

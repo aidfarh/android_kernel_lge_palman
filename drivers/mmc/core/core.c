@@ -44,9 +44,6 @@
 #include "sd_ops.h"
 #include "sdio_ops.h"
 
-/* If the device is not responding */
-#define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
-
 /*
  * Background operations can take a long time, depending on the housekeeping
  * operations the card has to perform.
@@ -651,7 +648,7 @@ struct mmc_async_req *mmc_start_req(struct mmc_host *host,
 	if (host->areq)
 		mmc_post_req(host, host->areq->mrq, 0);
 
-	/* Cancel a prepared request if it was not started. */
+	 /* Cancel a prepared request if it was not started. */
 	if ((err || start_err) && areq)
 			mmc_post_req(host, areq->mrq, -EINVAL);
 
@@ -898,12 +895,7 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			 */
 			limit_us = 3000000;
 		else
-#ifdef CONFIG_MACH_LGE
-            /* LGE_UPDATE_S apply D1L patch */
-            limit_us = 300000;
-#else
 			limit_us = 100000;
-#endif
 
 		/*
 		 * SDHC cards always use these fixed values.
@@ -1857,7 +1849,6 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 {
 	struct mmc_command cmd = {0};
 	unsigned int qty = 0;
-	unsigned long timeout;
 	int err;
 
 	/*
@@ -1935,7 +1926,6 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 	if (mmc_host_is_spi(card->host))
 		goto out;
 
-	timeout = jiffies + msecs_to_jiffies(MMC_CORE_TIMEOUT_MS);
 	do {
 		memset(&cmd, 0, sizeof(struct mmc_command));
 		cmd.opcode = MMC_SEND_STATUS;
@@ -1949,19 +1939,8 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 			err = -EIO;
 			goto out;
 		}
-
-		/* Timeout if the device never becomes ready for data and
-		 * never leaves the program state.
-		 */
-		if (time_after(jiffies, timeout)) {
-			pr_err("%s: Card stuck in programming state! %s\n",
-				mmc_hostname(card->host), __func__);
-			err =  -EIO;
-			goto out;
-		}
-
 	} while (!(cmd.resp[0] & R1_READY_FOR_DATA) ||
-		 (R1_CURRENT_STATE(cmd.resp[0]) == R1_STATE_PRG));
+		 R1_CURRENT_STATE(cmd.resp[0]) == R1_STATE_PRG);
 out:
 	return err;
 }
@@ -2305,16 +2284,8 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 	/* Order's important: probe SDIO, then SD, then MMC */
 	if (!mmc_attach_sdio(host))
 		return 0;
-
-	if (!host->ios.vdd)
-		mmc_power_up(host);
-
 	if (!mmc_attach_sd(host))
 		return 0;
-
-	if (!host->ios.vdd)
-		mmc_power_up(host);
-
 	if (!mmc_attach_mmc(host))
 		return 0;
 
@@ -2697,9 +2668,6 @@ int mmc_suspend_host(struct mmc_host *host)
 			if (err == -ENOSYS || !host->bus_ops->resume) {
 				/*
 				 * We simply "remove" the card in this case.
-				 * It will be redetected on resume.  (Calling
-				 * bus_ops->remove() with a claimed host can
-				 * deadlock.)
 				 * It will be redetected on resume.
 				 */
 				if (host->bus_ops->remove)
@@ -2836,11 +2804,6 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		}
 		host->rescan_disable = 0;
 		spin_unlock_irqrestore(&host->lock, flags);
-	#ifdef CONFIG_BCMDHD_MODULE
-	#define MMC_INDEX_BRCM_WIFI 2
-	/* This patch is for nonremovable 0 case of BCM WiFi */
-		if( host->index != MMC_INDEX_BRCM_WIFI )
-	#endif //CONFIG_BCMDHD_MODULE
 		mmc_detect_change(host, 0);
 
 	}

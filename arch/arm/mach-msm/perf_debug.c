@@ -26,17 +26,6 @@ static char *descriptions =
 	"1  Perf: Restore counter after powercollapse for generic ARM PMU's\n"
 	"2  Perf: Toggle PMU IRQ when CPU's are hotplugged\n"
 	"3  Perf: Correct irq for CPU hotplug detection\n"
-	"4  Perf: Check perf activity on correct CPU\n"
-	"7  Perf: Add L1 counters to tracepoints\n"
-	"10 Perf: Fix counts across power collapse\n"
-	"11 ARM: dts: msm: add perf-events support for msm8x10, msm8x12\n"
-	"12 Perf: Make per-process counters configurable\n"
-	"13 msm: perf: Add L2 support for tracecounters\n"
-	"14 Perf: keep events across hotplug\n"
-	"15 Perf: bring CPU online if needed when disabling irq\n"
-	"16 Perf: Support sw events across hotplug\n"
-	"17 msm: perf: initialise krait perf L2 counter enables\n"
-	"18 msm: perf: clean up duplicate constraint events\n"
 ;
 
 static ssize_t desc_read(struct file *fp, char __user *buf,

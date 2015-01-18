@@ -160,7 +160,7 @@ void recalc_sigpending(void)
 
 #define SYNCHRONOUS_MASK \
 	(sigmask(SIGSEGV) | sigmask(SIGBUS) | sigmask(SIGILL) | \
-	 sigmask(SIGTRAP) | sigmask(SIGFPE) | sigmask(SIGSYS))
+	 sigmask(SIGTRAP) | sigmask(SIGFPE))
 
 int next_signal(struct sigpending *pending, sigset_t *mask)
 {
@@ -683,7 +683,6 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
 void signal_wake_up_state(struct task_struct *t, unsigned int state)
 {
 	set_tsk_thread_flag(t, TIF_SIGPENDING);
-
 	/*
 	 * TASK_WAKEKILL also means wake it up in the stopped/traced/killable
 	 * case. We don't check t->state here because there is a race with it
@@ -2709,13 +2708,6 @@ int copy_siginfo_to_user(siginfo_t __user *to, siginfo_t *from)
 		err |= __put_user(from->si_uid, &to->si_uid);
 		err |= __put_user(from->si_ptr, &to->si_ptr);
 		break;
-#ifdef __ARCH_SIGSYS
-	case __SI_SYS:
-		err |= __put_user(from->si_call_addr, &to->si_call_addr);
-		err |= __put_user(from->si_syscall, &to->si_syscall);
-		err |= __put_user(from->si_arch, &to->si_arch);
-		break;
-#endif
 	default: /* this is just in case for now ... */
 		err |= __put_user(from->si_pid, &to->si_pid);
 		err |= __put_user(from->si_uid, &to->si_uid);
@@ -2833,8 +2825,6 @@ SYSCALL_DEFINE4(rt_sigtimedwait, const sigset_t __user *, uthese,
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
-	if (ccs_kill_permission(pid, sig))
-		return -EPERM;
 
 	info.si_signo = sig;
 	info.si_errno = 0;
@@ -2903,8 +2893,6 @@ SYSCALL_DEFINE3(tgkill, pid_t, tgid, pid_t, pid, int, sig)
 	/* This is only valid for single tasks */
 	if (pid <= 0 || tgid <= 0)
 		return -EINVAL;
-	if (ccs_tgkill_permission(tgid, pid, sig))
-		return -EPERM;
 
 	return do_tkill(tgid, pid, sig);
 }
@@ -2921,8 +2909,6 @@ SYSCALL_DEFINE2(tkill, pid_t, pid, int, sig)
 	/* This is only valid for single tasks */
 	if (pid <= 0)
 		return -EINVAL;
-	if (ccs_tkill_permission(pid, sig))
-		return -EPERM;
 
 	return do_tkill(0, pid, sig);
 }
@@ -2950,8 +2936,6 @@ SYSCALL_DEFINE3(rt_sigqueueinfo, pid_t, pid, int, sig,
 		return -EPERM;
 	}
 	info.si_signo = sig;
-	if (ccs_sigqueue_permission(pid, sig))
-		return -EPERM;
 
 	/* POSIX.1b doesn't mention process groups.  */
 	return kill_proc_info(sig, &info, pid);
@@ -2972,8 +2956,6 @@ long do_rt_tgsigqueueinfo(pid_t tgid, pid_t pid, int sig, siginfo_t *info)
 		return -EPERM;
 	}
 	info->si_signo = sig;
-	if (ccs_tgsigqueue_permission(tgid, pid, sig))
-		return -EPERM;
 
 	return do_send_specific(tgid, pid, sig, info);
 }

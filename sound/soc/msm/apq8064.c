@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,9 +29,8 @@
 #include <mach/socinfo.h>
 #include "msm-pcm-routing.h"
 #include "../codecs/wcd9310.h"
-#include "../../../arch/arm/mach-msm/lge/awifi/board-awifi.h"
 
-#if defined (CONFIG_SND_SOC_TPA2028D) || defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#if defined(CONFIG_SND_SOC_TPA2028D) || defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
 #include <sound/tpa2028d.h>
 #endif
 /* 8064 machine driver */
@@ -44,9 +43,8 @@
 #define MSM_SLIM_0_RX_MAX_CHANNELS		2
 #define MSM_SLIM_0_TX_MAX_CHANNELS		4
 
-#define SAMPLE_RATE_8KHZ 8000
-#define SAMPLE_RATE_16KHZ 16000
-#define SAMPLE_RATE_48KHZ 48000
+#define BTSCO_RATE_8KHZ 8000
+#define BTSCO_RATE_16KHZ 16000
 
 #define BOTTOM_SPK_AMP_POS	0x1
 #define BOTTOM_SPK_AMP_NEG	0x2
@@ -69,18 +67,11 @@
 #define TABLA_MBHC_DEF_RLOADS 5
 
 #define JACK_DETECT_GPIO 38
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-04-15 enable BT SCO AUX PCM [START]
-#define BRCM_BT_SCO_AUX_PCM
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-04-15 CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO, depends on CONFIG_FB_MSM_HDMI_MSM_PANEL.
-#define MSM_AMP_EN (PM8921_GPIO_PM_TO_SYS(19))
-#define MSM_AMP2_EN (PM8921_GPIO_PM_TO_SYS(20))
-
 
 /* Shared channel numbers for Slimbus ports that connect APQ to MDM. */
 enum {
 	SLIM_1_RX_1 = 145, /* BT-SCO and USB TX */
 	SLIM_1_TX_1 = 146, /* BT-SCO and USB RX */
-	SLIM_1_TX_2 = 147, /* USB RX */
 	SLIM_3_RX_1 = 151, /* External echo-cancellation ref */
 	SLIM_3_RX_2 = 152, /* External echo-cancellation ref */
 	SLIM_3_TX_1 = 153, /* HDMI RX */
@@ -95,13 +86,8 @@ enum {
 	INCALL_REC_STEREO,
 };
 
-#ifdef CONFIG_MACH_APQ8064_AWIFI
-static u32 top_spk_pamp_gpio  = PM8921_GPIO_PM_TO_SYS(19);
-static u32 bottom_spk_pamp_gpio = PM8921_GPIO_PM_TO_SYS(20);
-#else
 static u32 top_spk_pamp_gpio  = PM8921_GPIO_PM_TO_SYS(18);
 static u32 bottom_spk_pamp_gpio = PM8921_GPIO_PM_TO_SYS(19);
-#endif
 static int msm_spk_control;
 static int msm_ext_bottom_spk_pamp;
 static int msm_ext_top_spk_pamp;
@@ -109,12 +95,10 @@ static int msm_slim_0_rx_ch = 1;
 static int msm_slim_0_tx_ch = 1;
 static int msm_slim_3_rx_ch = 1;
 
-static int msm_slim_1_rate = SAMPLE_RATE_8KHZ;
+static int msm_btsco_rate = BTSCO_RATE_8KHZ;
 static int msm_btsco_ch = 1;
-static int msm_slim_1_rx_ch = 1;
-static int msm_slim_1_tx_ch = 1;
-
 static int msm_hdmi_rx_ch = 2;
+
 static int hdmi_rate_variable;
 static int rec_mode = INCALL_REC_MONO;
 
@@ -127,17 +111,16 @@ static atomic_t auxpcm_rsc_ref;
 
 static int apq8064_hs_detect_use_gpio = -1;
 
-#ifdef CONFIG_ANDROID_SW_IRRC
+#ifdef CONFIG_ANDROID_IRRC
 #define APQ8064_SPK_ON 1
 #define APQ8064_SPK_OFF 0
 #define EXT_AMP_MUTE 0
 #define EXT_AMP_UNMUTE 1
+
 struct timer_list EXT_AMP_ON_Timer;
-unsigned long pm8xxx_spk_mute_data=1; // 0 is unmute
-int PM8xxx_EXT_SPK_Force_Mute=0; // 0 mute, 1 unmute
-
-struct delayed_work		mute_check_work;
-
+unsigned long pm8xxx_spk_mute_data = 1; /* 0 is unmute */
+int PM8xxx_EXT_SPK_Force_Mute = 0;      /* 0 mute, 1 unmute */
+struct delayed_work mute_check_work;
 #endif
 
 module_param(apq8064_hs_detect_use_gpio, int, 0444);
@@ -170,11 +153,10 @@ static struct tabla_mbhc_config mbhc_cfg = {
 };
 
 static struct mutex cdc_mclk_mutex;
-//LGE_CHANGE_S 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
-#if defined( CONFIG_ANDROID_SW_IRRC) && defined(CONFIG_MACH_APQ8064_AWIFI)
+
+#ifdef CONFIG_ANDROID_IRRC
 static struct mutex cdc_mute_mutex;
 #endif
-//LGE_CHANGE_E 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
 
 static void msm_enable_ext_spk_amp_gpio(u32 spk_amp_gpio)
 {
@@ -187,7 +169,8 @@ static void msm_enable_ext_spk_amp_gpio(u32 spk_amp_gpio)
 		.pull      = PM_GPIO_PULL_NO,
 		.vin_sel	= PM_GPIO_VIN_S4,
 		.out_strength   = PM_GPIO_STRENGTH_MED,
-		.function       = PM_GPIO_FUNC_NORMAL,
+		.
+			function       = PM_GPIO_FUNC_NORMAL,
 	};
 
 	if (spk_amp_gpio == bottom_spk_pamp_gpio) {
@@ -246,14 +229,14 @@ static void msm_ext_spk_power_amp_on(u32 spk)
 
 		if ((msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_POS) &&
 			(msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP_NEG)) {
-#ifdef CONFIG_ANDROID_SW_IRRC
-			if(PM8xxx_EXT_SPK_Force_Mute==1){
+#ifdef CONFIG_ANDROID_IRRC
+			if (PM8xxx_EXT_SPK_Force_Mute == 1) {
 				gpio_direction_output(bottom_spk_pamp_gpio, 0);
 				gpio_free(bottom_spk_pamp_gpio);
 				msm_ext_bottom_spk_pamp = 0;
-			}
-			else
+			} else {
 				msm_enable_ext_spk_amp_gpio(bottom_spk_pamp_gpio);
+			}
 #else
 			msm_enable_ext_spk_amp_gpio(bottom_spk_pamp_gpio);
 #endif
@@ -261,34 +244,28 @@ static void msm_ext_spk_power_amp_on(u32 spk)
 				" Bottom Speaker Ampl\n", __func__);
 			usleep_range(4000, 4000);
 		}
-
-#if defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 	} else if (spk & BOTTOM_SPK_AMP ) {
 		pr_debug("%s():bottom_spk_amp_state = 0x%x spk_event = 0x%x\n",
 				__func__, msm_ext_bottom_spk_pamp, spk);
 
 		if ( msm_ext_bottom_spk_pamp & BOTTOM_SPK_AMP ) {
-				pr_debug("%s() External Bottom Speaker Ampl already"
-					"turned on. spk = 0x%08x\n", __func__, spk);
-				return;
+			pr_debug("%s() External Bottom Speaker Ampl already"
+				"turned on. spk = 0x%08x\n", __func__, spk);
+			return;
 		}
 		msm_ext_bottom_spk_pamp |= spk;
-
-#if defined(CONFIG_ANDROID_SW_IRRC)
-			if(PM8xxx_EXT_SPK_Force_Mute==1){
-			//	msm_ext_bottom_spk_pamp = 0; //remove pop up noise
-				set_amp_gain(1,SPK_OFF);
-			}
-			else {
-				//msm_ext_bottom_spk_pamp = 1;		//remove pop up noise
-				set_amp_gain(1,SPK_ON);
-			}
+#ifdef CONFIG_ANDROID_IRRC
+		if (PM8xxx_EXT_SPK_Force_Mute == 1) {
+			set_amp_gain(1, SPK_OFF);
+		} else {
+			set_amp_gain(1, SPK_ON);
+		}
 #else
-			set_amp_gain(1,SPK_ON);
+		set_amp_gain(1,SPK_ON);
 #endif
 #endif
-	} else if (spk & (TOP_SPK_AMP_POS | TOP_SPK_AMP_NEG | TOP_SPK_AMP )) {
+	} else if (spk & (TOP_SPK_AMP_POS | TOP_SPK_AMP_NEG | TOP_SPK_AMP)) {
 
 		pr_debug("%s():top_spk_amp_state = 0x%x spk_event = 0x%x\n",
 			__func__, msm_ext_top_spk_pamp, spk);
@@ -307,37 +284,33 @@ static void msm_ext_spk_power_amp_on(u32 spk)
 		if (((msm_ext_top_spk_pamp & TOP_SPK_AMP_POS) &&
 			(msm_ext_top_spk_pamp & TOP_SPK_AMP_NEG)) ||
 				(msm_ext_top_spk_pamp & TOP_SPK_AMP)) {
-				
-#if defined(CONFIG_ANDROID_SW_IRRC)
-			if(PM8xxx_EXT_SPK_Force_Mute==1){
-				//msm_ext_top_spk_pamp = 0;		//remove pop up noise
+#ifdef CONFIG_ANDROID_IRRC
+			if (PM8xxx_EXT_SPK_Force_Mute == 1) {
 #if defined(CONFIG_SND_SOC_TPA2028D)
 				set_amp_gain(SPK_OFF);
-#elif defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
 				set_amp_gain(0,SPK_OFF);
 #else
-			gpio_direction_output(top_spk_pamp_gpio, 0);
-			gpio_free(top_spk_pamp_gpio);
-			usleep_range(4000, 4000);
+				gpio_direction_output(top_spk_pamp_gpio, 0);
+				gpio_free(top_spk_pamp_gpio);
+				usleep_range(4000, 4000);
 #endif
-			}
-			else {
-				//msm_ext_top_spk_pamp = 1;		//remove pop up noise
+			} else {
 #if defined(CONFIG_SND_SOC_TPA2028D)
 				set_amp_gain(SPK_ON);
-#elif defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
 				set_amp_gain(0,SPK_ON);
 #else
-			msm_enable_ext_spk_amp_gpio(top_spk_pamp_gpio);
-			pr_debug("%s: sleeping 4 ms after turning on "
-				" external Top Speaker Ampl\n", __func__);
-			usleep_range(4000, 4000);
+				msm_enable_ext_spk_amp_gpio(top_spk_pamp_gpio);
+				pr_debug("%s: sleeping 4 ms after turning on "
+					" external Top Speaker Ampl\n", __func__);
+				usleep_range(4000, 4000);
 #endif
-		}
+			}
 #else
-#if defined( CONFIG_SND_SOC_TPA2028D)
+#if defined(CONFIG_SND_SOC_TPA2028D)
 			set_amp_gain(SPK_ON);
-#elif defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
 			set_amp_gain(0,SPK_ON);
 #else
 			msm_enable_ext_spk_amp_gpio(top_spk_pamp_gpio);
@@ -388,36 +361,35 @@ static void msm_ext_spk_power_amp_off(u32 spk)
 		}
 
 		if (msm_ext_top_spk_pamp)
-				return;
-
-			msm_ext_top_spk_pamp = 0;
-#if defined(CONFIG_SND_SOC_TPA2028D)
-			set_amp_gain(SPK_OFF);
-#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-			set_amp_gain(0,SPK_OFF);
-#else
-			gpio_direction_output(top_spk_pamp_gpio, 0);
-			gpio_free(top_spk_pamp_gpio);
-
-			pr_debug("%s: sleeping 4 ms after ext Top Spek Ampl is off\n",
-					__func__);
-
-			usleep_range(4000, 4000);
-#endif
-		}
-#if defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-		else if ( spk & BOTTOM_SPK_AMP  ) {
-			msm_ext_bottom_spk_pamp &=  ~BOTTOM_SPK_AMP;
-			set_amp_gain(1,SPK_OFF);
-		}
-#endif
-		else	{
-
-			pr_err("%s: ERROR : Invalid Ext Spk Ampl. spk = 0x%08x\n",
-				__func__, spk);
 			return;
-		}
 
+#if defined(CONFIG_SND_SOC_TPA2028D)
+		set_amp_gain(SPK_OFF);
+		msm_ext_top_spk_pamp = 0;
+#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+		set_amp_gain(0,SPK_OFF);
+		msm_ext_top_spk_pamp = 0;
+#else
+		gpio_direction_output(top_spk_pamp_gpio, 0);
+		gpio_free(top_spk_pamp_gpio);
+		msm_ext_top_spk_pamp = 0;
+
+		pr_debug("%s: sleeping 4 ms after ext Top Spek Ampl is off\n",
+				__func__);
+
+		usleep_range(4000, 4000);
+#endif
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
+	} else if ( spk & BOTTOM_SPK_AMP  ) {
+		msm_ext_bottom_spk_pamp &=  ~BOTTOM_SPK_AMP;
+		set_amp_gain(1,SPK_OFF);
+#endif
+	} else  {
+
+		pr_err("%s: ERROR : Invalid Ext Spk Ampl. spk = 0x%08x\n",
+			__func__, spk);
+		return;
+	}
 }
 
 static void msm_ext_control(struct snd_soc_codec *codec)
@@ -433,10 +405,9 @@ static void msm_ext_control(struct snd_soc_codec *codec)
 #if defined (CONFIG_SND_SOC_TPA2028D) || defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk Top");
 #endif
-#if defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom");
 #endif
-
 	} else {
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Bottom Pos");
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Bottom Neg");
@@ -445,10 +416,9 @@ static void msm_ext_control(struct snd_soc_codec *codec)
 #if defined (CONFIG_SND_SOC_TPA2028D) || defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Top");
 #endif
-#if defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk Bottom");
 #endif
-
 	}
 
 	snd_soc_dapm_sync(dapm);
@@ -490,7 +460,7 @@ static int msm_spkramp_event(struct snd_soc_dapm_widget *w,
 			msm_ext_spk_power_amp_on(TOP_SPK_AMP_NEG);
 		else if  (!strncmp(w->name, "Ext Spk Top", 12))
 			msm_ext_spk_power_amp_on(TOP_SPK_AMP);
-#if defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 		else if  (!strncmp(w->name, "Ext Spk Bottom", 14))
 			msm_ext_spk_power_amp_on(BOTTOM_SPK_AMP);
 #endif
@@ -511,10 +481,9 @@ static int msm_spkramp_event(struct snd_soc_dapm_widget *w,
 			msm_ext_spk_power_amp_off(TOP_SPK_AMP_NEG);
 		else if  (!strncmp(w->name, "Ext Spk Top", 12))
 			msm_ext_spk_power_amp_off(TOP_SPK_AMP);
-#if defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 		else if  (!strncmp(w->name, "Ext Spk Bottom", 14))
 			msm_ext_spk_power_amp_off(BOTTOM_SPK_AMP);
-
 #endif
 		else {
 			pr_err("%s() Invalid Speaker Widget = %s\n",
@@ -623,7 +592,7 @@ static const struct snd_soc_dapm_widget apq8064_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Ext Spk Top Pos", msm_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Top Neg", msm_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Top", msm_spkramp_event),
-#if defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 	SND_SOC_DAPM_SPK("Ext Spk Bottom", msm_spkramp_event),
 #endif
 
@@ -638,21 +607,10 @@ static const struct snd_soc_dapm_widget apq8064_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("ANCRight Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("ANCLeft Headset Mic", NULL),
 
-#ifdef CONFIG_SND_SOC_DUAL_AMIC
 	SND_SOC_DAPM_MIC("Handset Mic", NULL),
+#ifdef CONFIG_SND_SOC_DUAL_AMIC
 	SND_SOC_DAPM_MIC("Handset SubMic", NULL),
 #endif
-
-#ifdef CONFIG_MACH_APQ8064_AWIFI
-	SND_SOC_DAPM_MIC("Handset Mic", NULL),
-#endif
-
-//[AUDIO_BSP][3rd MIC] gooyeon.jung@lge.com 2012-09-28 enable MIC_BIAS4 connected to 3rd MIC. [START]
-#if defined(CONFIG_SND_SOC_3rd_MIC_AMIC) && defined(CONFIG_MACH_APQ8064_GVAR_CMCC)
-	SND_SOC_DAPM_MIC("Handset 3rdMic", NULL),
-#endif
-//[AUDIO_BSP][3rd MIC] gooyeon.jung@lge.com 2012-09-28 enable MIC_BIAS4 connected to 3rd MIC. [END]
-
 
 	/*********** Digital Mics ***************/
 	SND_SOC_DAPM_MIC("Digital Mic1", NULL),
@@ -681,30 +639,17 @@ static const struct snd_soc_dapm_route apq8064_common_audio_map[] = {
 	{"Ext Spk Top Neg", NULL, "LINEOUT4"},
 	{"Ext Spk Top", NULL, "LINEOUT5"},
 #endif
-#if defined (CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 	{"Ext Spk Bottom", NULL, "LINEOUT2"},
 #endif
-
-//[AUDIO_BSP][3rd MIC] gooyeon.jung@lge.com 2012-09-28 enable MIC_BIAS4 connected to 3rd MIC. [START]
-#if defined(CONFIG_SND_SOC_3rd_MIC_AMIC) && defined(CONFIG_MACH_APQ8064_GVAR_CMCC)
-	{"AMIC5", NULL, "MIC BIAS4 External"},
-	{"MIC BIAS4 External", NULL, "Handset 3rdMic"},
-#endif
-//[AUDIO_BSP][3rd MIC] gooyeon.jung@lge.com 2012-09-28 enable MIC_BIAS4 connected to 3rd MIC. [END]
-
-
 	/************   Analog MIC Paths  ************/
-#ifdef CONFIG_SND_SOC_DUAL_AMIC
 	/* Handset Mic */
 	{"AMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Handset Mic"},
 
+#ifdef CONFIG_SND_SOC_DUAL_AMIC
 	{"AMIC3", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Handset SubMic"},
-#endif
-#ifdef CONFIG_MACH_APQ8064_AWIFI
-	{"AMIC1", NULL, "MIC BIAS1 External"},
-	{"MIC BIAS1 External", NULL, "Handset Mic"},
 #endif
 	/* Headset Mic */
 	{"AMIC2", NULL, "MIC BIAS2 External"},
@@ -835,7 +780,6 @@ static const struct snd_soc_dapm_route apq8064_liquid_cdp_audio_map[] = {
 
 static const char *spk_function[] = {"Off", "On"};
 static const char *slim0_rx_ch_text[] = {"One", "Two"};
-
 static const char *slim0_tx_ch_text[] = {"One", "Two", "Three", "Four"};
 static const char *hdmi_rx_ch_text[] = {"Two", "Three", "Four", "Five",
 	"Six", "Seven", "Eight"};
@@ -849,22 +793,18 @@ static const struct soc_enum msm_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, hdmi_rate),
 };
 
-#ifdef CONFIG_ANDROID_SW_IRRC
-static const char *PMxxxx_SKP_Mute[] = {"Unmute","Mute"};
+#ifdef CONFIG_ANDROID_IRRC
+static const char *PMxxxx_SKP_Mute[] = {"Unmute", "Mute"};
 static const struct soc_enum PMxxxx_SPK_Mute_enum[] = {
     SOC_ENUM_SINGLE_EXT(2, PMxxxx_SKP_Mute),
 };
 #endif
 
+static const char *btsco_rate_text[] = {"8000", "16000"};
+static const struct soc_enum msm_btsco_enum[] = {
+		SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
+};
 
-static const char * const slim1_rate_text[] = {"8000", "16000", "48000"};
-static const struct soc_enum msm_slim_1_rate_enum[] = {
-	SOC_ENUM_SINGLE_EXT(3, slim1_rate_text),
-};
-static const char * const slim1_tx_ch_text[] = {"One", "Two"};
-static const struct soc_enum msm_slim_1_tx_ch_enum[] = {
-	SOC_ENUM_SINGLE_EXT(2, slim1_tx_ch_text),
-};
 static int msm_slim_0_rx_ch_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
@@ -880,7 +820,7 @@ static int msm_slim_0_rx_ch_put(struct snd_kcontrol *kcontrol,
 	msm_slim_0_rx_ch = ucontrol->value.integer.value[0] + 1;
 
 	pr_debug("%s: msm_slim_0_rx_ch = %d\n", __func__,
-		 msm_slim_0_rx_ch);
+			msm_slim_0_rx_ch);
 	return 1;
 }
 
@@ -903,27 +843,6 @@ static int msm_slim_0_tx_ch_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
-static int msm_slim_1_tx_ch_get(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	pr_debug("%s: msm_slim_1_tx_ch  = %d\n", __func__,
-		 msm_slim_1_tx_ch);
-
-	ucontrol->value.integer.value[0] = msm_slim_1_tx_ch - 1;
-	return 0;
-}
-
-static int msm_slim_1_tx_ch_put(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	msm_slim_1_tx_ch = ucontrol->value.integer.value[0] + 1;
-
-	pr_debug("%s: msm_slim_1_tx_ch = %d\n", __func__,
-		 msm_slim_1_tx_ch);
-
-	return 1;
-}
-
 static int msm_slim_3_rx_ch_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
@@ -943,35 +862,31 @@ static int msm_slim_3_rx_ch_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
-static int msm_slim_1_rate_get(struct snd_kcontrol *kcontrol,
+static int msm_btsco_rate_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	pr_debug("%s: msm_slim_1_rate  = %d", __func__,
-		 msm_slim_1_rate);
-
-	ucontrol->value.integer.value[0] = msm_slim_1_rate;
+	pr_debug("%s: msm_btsco_rate  = %d", __func__,
+					msm_btsco_rate);
+	ucontrol->value.integer.value[0] = msm_btsco_rate;
 	return 0;
 }
 
-static int msm_slim_1_rate_put(struct snd_kcontrol *kcontrol,
+static int msm_btsco_rate_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	switch (ucontrol->value.integer.value[0]) {
 	case 8000:
-		msm_slim_1_rate = SAMPLE_RATE_8KHZ;
+		msm_btsco_rate = BTSCO_RATE_8KHZ;
 		break;
 	case 16000:
-		msm_slim_1_rate = SAMPLE_RATE_16KHZ;
-		break;
-	case 48000:
-		msm_slim_1_rate = SAMPLE_RATE_48KHZ;
+		msm_btsco_rate = BTSCO_RATE_16KHZ;
 		break;
 	default:
-		msm_slim_1_rate = SAMPLE_RATE_8KHZ;
+		msm_btsco_rate = BTSCO_RATE_8KHZ;
 		break;
 	}
-	pr_debug("%s: msm_slim_1_rate = %d\n", __func__,
-		 msm_slim_1_rate);
+	pr_debug("%s: msm_btsco_rate = %d\n", __func__,
+					msm_btsco_rate);
 	return 0;
 }
 
@@ -1010,7 +925,7 @@ static int msm_hdmi_rx_ch_put(struct snd_kcontrol *kcontrol,
 		msm_hdmi_rx_ch);
 	return 1;
 }
-
+	
 static int msm_hdmi_rate_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
@@ -1026,147 +941,57 @@ static int msm_hdmi_rate_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-#ifdef CONFIG_ANDROID_SW_IRRC
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
+#ifdef CONFIG_ANDROID_IRRC
 void spk_unmute_timer_function(struct work_struct *work)
 {
-//LGE_CHANGE_S 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
-		mutex_lock(&cdc_mute_mutex);
-		printk("spk_unmute_timer_function\n");
-		set_amp_gain(0, SPK_ON);
-		set_amp_gain(1, SPK_ON);
-		PM8xxx_EXT_SPK_Force_Mute=0;
-		mutex_unlock(&cdc_mute_mutex);
-//LGE_CHANGE_E 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
+	mutex_lock(&cdc_mute_mutex);
+	printk("spk_unmute_timer_function\n");
+	set_amp_gain(0, SPK_ON);
+	set_amp_gain(1, SPK_ON);
+	PM8xxx_EXT_SPK_Force_Mute = 0;
+	mutex_unlock(&cdc_mute_mutex);
 }
-#endif
-
-#if !defined(CONFIG_MACH_APQ8064_AWIFI)
-void pm8xxx_spk_unmute_timer_function(unsigned long data)
-{
-	printk("pm8xxx_spk_unmute_timer_function data %d\n",(int)data);
-//	pm8xxx_spk_mute(data);
-
-	if((int)data==APQ8064_SPK_ON) //unmute case	
-		{
-			printk("pm8xxx_spk_unmute_timer_function data %d Unmute\n",(int)data);
-			PM8xxx_EXT_SPK_Force_Mute=0;
-#if defined( CONFIG_SND_SOC_TPA2028D)
-			set_amp_gain(SPK_ON);
-#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-			set_amp_gain(0, SPK_ON);
-			set_amp_gain(1, SPK_ON);
-#else
-			msm_enable_ext_spk_amp_gpio(top_spk_pamp_gpio);
-			pr_debug("%s: sleeping 4 ms after turning on "
-							" external Top Speaker Ampl\n", __func__);
-			usleep_range(4000, 4000);
-#endif
-//			pm8xxx_spk_enable((int)data);
-//			pm8xxx_spk_mute(1);
-
-		}
-	else{
-			printk("pm8xxx_spk_unmute_timer_function data %d mute Case\n",(int)data);
-			PM8xxx_EXT_SPK_Force_Mute=1;
-#if defined( CONFIG_SND_SOC_TPA2028D)
-			set_amp_gain(SPK_OFF);
-#elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-			set_amp_gain(0, SPK_OFF);
-			set_amp_gain(1, SPK_OFF);
-#else
-			gpio_direction_output(top_spk_pamp_gpio, 0);
-			gpio_free(top_spk_pamp_gpio);
-			usleep_range(4000, 4000);
-#endif
-//			pm8xxx_spk_enable((int)data);
-//			pm8xxx_spk_mute(0);
-		}
-}
-#endif
 
 static int apq8064_pmic_mute_put(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
 	int ret = 0;
-	int apq8064_pmic_mute_enable =0;
+	int apq8064_pmic_mute_enable = 0;
 	int temp_pp = (int)ucontrol->value.integer.value[0];
 	PM8xxx_EXT_SPK_Force_Mute =  ucontrol->value.integer.value[0];
-#if defined(CONFIG_MACH_APQ8064_AWIFI)
-//LGE_CHANGE_S 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
-/*   mutex_lock(&cdc_mute_mutex);
-	if (delayed_work_pending(&mute_check_work))
-	{
-		cancel_delayed_work(&mute_check_work);
-	}
-	schedule_delayed_work(&mute_check_work,	round_jiffies_relative(msecs_to_jiffies(900)));
-	mutex_unlock(&cdc_mute_mutex);
-*/
-//LGE_CHANGE_E 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
-#else
-	del_timer(&EXT_AMP_ON_Timer);
-	init_timer(&EXT_AMP_ON_Timer);
 
-	pm8xxx_spk_mute_data=APQ8064_SPK_ON;
-	EXT_AMP_ON_Timer.expires = get_jiffies_64()+ (9*HZ/10);  //(700ms)
-	EXT_AMP_ON_Timer.data= pm8xxx_spk_mute_data;
-	EXT_AMP_ON_Timer.function = pm8xxx_spk_unmute_timer_function;
-	add_timer(&EXT_AMP_ON_Timer);
-#endif
+	pr_info("apq8064_pmic_mute_put apq8064_pmic_mute_enable %d \n", temp_pp);
 
-	printk("apq8064_pmic_mute_put apq8064_pmic_mute_enable %d \n",temp_pp);
-
-	if(ucontrol->value.integer.value[0]==1){
-		apq8064_pmic_mute_enable=APQ8064_SPK_OFF;
-		printk("apq8064_pmic_mute_put apq8064_pmic_mute_enable MUTE\n");
-#if defined( CONFIG_SND_SOC_TPA2028D)
+	if (ucontrol->value.integer.value[0] == 1) {
+		apq8064_pmic_mute_enable = APQ8064_SPK_OFF;
+		pr_info("apq8064_pmic_mute_put apq8064_pmic_mute_enable MUTE\n");
+#if defined(CONFIG_SND_SOC_TPA2028D)
 		set_amp_gain(SPK_OFF);
 #elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-#if defined ( CONFIG_MACH_APQ8064_AWIFI )
 		irrc_amp_off(0, SPK_OFF);
 		irrc_amp_off(1, SPK_OFF);
-#else
-		set_amp_gain(0, SPK_OFF);
-		set_amp_gain(1, SPK_OFF);
-#endif
 #else
 		gpio_direction_output(top_spk_pamp_gpio, 0);
 		gpio_free(top_spk_pamp_gpio);
 		usleep_range(4000, 4000);
 #endif
-		}
-	else{
-		apq8064_pmic_mute_enable=APQ8064_SPK_ON;
-		printk("apq8064_pmic_mute_put apq8064_pmic_mute_enable UNMUTE\n");
-#if defined ( CONFIG_SND_SOC_TPA2028D)
+	} else {
+		apq8064_pmic_mute_enable = APQ8064_SPK_ON;
+		pr_info("apq8064_pmic_mute_put apq8064_pmic_mute_enable UNMUTE\n");
+#if defined(CONFIG_SND_SOC_TPA2028D)
 		set_amp_gain(SPK_ON);
 #elif defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
-//LGE_CHANGE_S 20130805 ilda.jung [SWIrRC] Prevent noise at stopping IrRC
-#if defined ( CONFIG_MACH_APQ8064_AWIFI )
 		mutex_lock(&cdc_mute_mutex);
 		mdelay(200);
 		set_amp_gain(0, SPK_ON);
 		set_amp_gain(1, SPK_ON);
 		mutex_unlock(&cdc_mute_mutex);
 #else
-		set_amp_gain(0, SPK_ON);
-		set_amp_gain(1, SPK_ON);
-#endif
-//LGE_CHANGE_E 20130805 ilda.jung [SWIrRC] Prevent noise at stopping IrRC
-
-#else
 		msm_enable_ext_spk_amp_gpio(top_spk_pamp_gpio);
-		pr_debug("%s: sleeping 4 ms after turning on "
-									" external Top Speaker Ampl\n", __func__);
+		pr_debug("%s: sleeping 4 ms after turning on external Top Speaker Ampl\n", __func__);
 		usleep_range(4000, 4000);
 #endif
-
-		}
-
-
-//	pm8xxx_spk_enable(apq8064_pmic_mute_enable);
-//	pm8xxx_spk_mute(0);
-
+	}
 	return ret;
 }
 
@@ -1177,7 +1002,7 @@ static int apq8064_pmic_mute_get(struct snd_kcontrol *kcontrol,
 	int apq8064_pmic_mute_enable = ucontrol->value.integer.value[0];
 
 	pr_debug("%s: apq8064_pmic_mute_enable = %d"
-			 " ucontrol->value.integer.value[0] = %d\n", __func__,
+			"ucontrol->value.integer.value[0] = %d\n", __func__,
 			 apq8064_pmic_mute_enable,
 			 (int) ucontrol->value.integer.value[0]);
 	return ret;
@@ -1191,10 +1016,8 @@ static const struct snd_kcontrol_new tabla_msm_controls[] = {
 		msm_slim_0_rx_ch_get, msm_slim_0_rx_ch_put),
 	SOC_ENUM_EXT("SLIM_0_TX Channels", msm_enum[2],
 		msm_slim_0_tx_ch_get, msm_slim_0_tx_ch_put),
-	SOC_ENUM_EXT("SLIM_1_TX Channels", msm_slim_1_tx_ch_enum[0],
-		      msm_slim_1_tx_ch_get, msm_slim_1_tx_ch_put),
-	SOC_ENUM_EXT("SLIM_1 SampleRate", msm_slim_1_rate_enum[0],
-		      msm_slim_1_rate_get, msm_slim_1_rate_put),
+	SOC_ENUM_EXT("Internal BTSCO SampleRate", msm_btsco_enum[0],
+		msm_btsco_rate_get, msm_btsco_rate_put),
 	SOC_SINGLE_EXT("Incall Rec Mode", SND_SOC_NOPM, 0, 1, 0,
 			msm_incall_rec_mode_get, msm_incall_rec_mode_put),
 	SOC_ENUM_EXT("SLIM_3_RX Channels", msm_enum[1],
@@ -1204,11 +1027,10 @@ static const struct snd_kcontrol_new tabla_msm_controls[] = {
 	SOC_ENUM_EXT("HDMI RX Rate", msm_enum[4],
 					msm_hdmi_rate_get,
 					msm_hdmi_rate_put),
-#ifdef CONFIG_ANDROID_SW_IRRC
+#ifdef CONFIG_ANDROID_IRRC
 	SOC_ENUM_EXT("SPK Force Mute", PMxxxx_SPK_Mute_enum[0],
 					apq8064_pmic_mute_get, apq8064_pmic_mute_put),
 #endif
-
 };
 
 static void *def_tabla_mbhc_cal(void)
@@ -1450,7 +1272,7 @@ static int msm_slimbus_1_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret = 0;
-	unsigned int rx_ch = SLIM_1_RX_1, tx_ch[2] = {SLIM_1_TX_1, SLIM_1_TX_2};
+	unsigned int rx_ch = SLIM_1_RX_1, tx_ch = SLIM_1_TX_1;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		pr_debug("%s: APQ BT/USB TX -> SLIMBUS_1_RX -> MDM TX shared ch %d\n",
@@ -1464,11 +1286,10 @@ static int msm_slimbus_1_hw_params(struct snd_pcm_substream *substream,
 			goto end;
 		}
 	} else {
-		pr_debug("%s: MDM RX ->SLIMBUS_1_TX ->APQ BT/USB Rx shared ch %d %d\n",
-			  __func__, tx_ch[0], tx_ch[1]);
+		pr_debug("%s: MDM RX -> SLIMBUS_1_TX -> APQ BT/USB Rx shared ch %d\n",
+			__func__, tx_ch);
 
-		ret = snd_soc_dai_set_channel_map(cpu_dai, msm_slim_1_tx_ch,
-						  tx_ch, 0, 0);
+		ret = snd_soc_dai_set_channel_map(cpu_dai, 1, &tx_ch, 0, 0);
 		if (ret < 0) {
 			pr_err("%s: Erorr %d setting SLIM_1 TX channel map\n",
 				__func__, ret);
@@ -1564,10 +1385,8 @@ static int msm_slimbus_4_hw_params(struct snd_pcm_substream *substream,
 
 static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 {
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-02-06 WCD9310's MBHC is blocked [START]
-#if defined(CONFIG_WCD9310_MBHC) && !(defined(CONFIG_SWITCH_FSA8008)||defined(CONFIG_SWITCH_MAX1462X))
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-02-06 WCD9310's MBHC is blocked [END]
 	int err;
+#if !(defined(CONFIG_SWITCH_FSA8008) || defined(CONFIG_SWITCH_MAX1462X))
 	uint32_t revision;
 #endif
 	struct snd_soc_codec *codec = rtd->codec;
@@ -1587,7 +1406,7 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_add_routes(dapm, apq8064_common_audio_map,
 		ARRAY_SIZE(apq8064_common_audio_map));
 
-	if (machine_is_apq8064_mtp()) {
+	if (machine_is_apq8064_mtp() || machine_is_apq8064_mako()) {
 		snd_soc_dapm_add_routes(dapm, apq8064_mtp_audio_map,
 			ARRAY_SIZE(apq8064_mtp_audio_map));
 	} else  {
@@ -1603,15 +1422,11 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Neg");
 #endif
-#if defined(CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER)
+#ifdef CONFIG_SND_SOC_TPA2028D_DUAL_SPEAKER
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom");
 #endif
 
 	snd_soc_dapm_sync(dapm);
-
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-02-06 WCD9310's MBHC is blocked [START]
-#if defined(CONFIG_WCD9310_MBHC) && !(defined(CONFIG_SWITCH_FSA8008)||defined(CONFIG_SWITCH_MAX1462X))
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-02-06 WCD9310's MBHC is blocked [END]
 
 	err = snd_soc_jack_new(codec, "Headset Jack",
 			       (SND_JACK_HEADSET |  SND_JACK_LINEOUT |
@@ -1629,14 +1444,10 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		pr_err("failed to create new jack\n");
 		return err;
 	}
-#endif
 
 	codec_clk = clk_get(cpu_dai->dev, "osr_clk");
 
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-02-06 WCD9310's MBHC is blocked [START]
-#if defined(CONFIG_WCD9310_MBHC) && !(defined(CONFIG_SWITCH_FSA8008)||defined(CONFIG_SWITCH_MAX1462X))
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-02-06 WCD9310's MBHC is blocked [END]
-
+#if !(defined(CONFIG_SWITCH_FSA8008) || defined(CONFIG_SWITCH_MAX1462X))
 	/* APQ8064 Rev 1.1 CDP and Liquid have mechanical switch */
 	revision = socinfo_get_version();
 	if (apq8064_hs_detect_use_gpio != -1) {
@@ -1775,24 +1586,6 @@ static int msm_slim_4_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
-static int msm_slim_4_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
-			struct snd_pcm_hw_params *params)
-{
-	struct snd_interval *rate = hw_param_interval(params,
-			SNDRV_PCM_HW_PARAM_RATE);
-
-	struct snd_interval *channels = hw_param_interval(params,
-			SNDRV_PCM_HW_PARAM_CHANNELS);
-
-	rate->min = rate->max = 48000;
-	channels->min = channels->max = 1;
-
-	pr_debug("%s channels->min %u channels->max %u ()\n", __func__,
-			channels->min, channels->max);
-	return 0;
-}
-
-
 static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 			struct snd_pcm_hw_params *params)
 {
@@ -1832,46 +1625,16 @@ static int msm_btsco_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 					struct snd_pcm_hw_params *params)
 {
 	struct snd_interval *rate = hw_param_interval(params,
-						      SNDRV_PCM_HW_PARAM_RATE);
-
-	struct snd_interval *channels = hw_param_interval(params,
-					SNDRV_PCM_HW_PARAM_CHANNELS);
-
-	rate->min = rate->max = msm_slim_1_rate;
-	channels->min = channels->max = msm_btsco_ch;
-
-	return 0;
-}
-static int msm_slim_1_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
-					    struct snd_pcm_hw_params *params)
-{
-	struct snd_interval *rate = hw_param_interval(params,
-						      SNDRV_PCM_HW_PARAM_RATE);
-
-	struct snd_interval *channels = hw_param_interval(params,
-					SNDRV_PCM_HW_PARAM_CHANNELS);
-
-	rate->min = rate->max = msm_slim_1_rate;
-	channels->min = channels->max = msm_slim_1_rx_ch;
-
-	return 0;
-}
-
-static int msm_slim_1_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
-					    struct snd_pcm_hw_params *params)
-{
-	struct snd_interval *rate = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_RATE);
 
 	struct snd_interval *channels = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
-	rate->min = rate->max = msm_slim_1_rate;
-	channels->min = channels->max = msm_slim_1_tx_ch;
+	rate->min = rate->max = msm_btsco_rate;
+	channels->min = channels->max = msm_btsco_ch;
 
 	return 0;
 }
-
 static int msm_auxpcm_be_params_fixup(struct snd_soc_pcm_runtime *rtd,
 					struct snd_pcm_hw_params *params)
 {
@@ -1881,17 +1644,8 @@ static int msm_auxpcm_be_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
-#if 0 //QCT ORG
 	/* PCM only supports mono output with 8khz sample rate */
 	rate->min = rate->max = 8000;
-#else
-	// QCT 161030 - change variable name , please check it
-	//[AUDIO_BSP][WB BT] junday.lee@lge.com 2012-11-29 Support WB Aux PCM BT SOC [START]
-	pr_debug("%s: auxpcm rate set = %d\n", __func__, msm_slim_1_rate);
-	//pr_debug("%s: auxpcm rate set = %d\n", __func__, msm_auxpcm_rate);
-	rate->min = rate->max = msm_slim_1_rate; //msm_auxpcm_rate;
-	//[AUDIO_BSP][WB BT] junday.lee@lge.com 2012-11-29 Support WB Aux PCM BT SOC [END]
-#endif
 	channels->min = channels->max = 1;
 
 	return 0;
@@ -1913,16 +1667,8 @@ static int msm_aux_pcm_get_gpios(void)
 	int ret = 0;
 
 	pr_debug("%s\n", __func__);
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-04-15 enable BT SCO AUX PCM [START]
-/* CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO depends on CONFIG_FB_MSM_HDMI_MSM_PANEL.
- * (Please check android/kernel/sound/soc/msm/Kconfig)
- * L05E doesn't use HDMI, so we need to disable OCONFIG_FB_MSM_HDMI_MSM_PANEL.
- * However, BT SCO doesn't work because of two parts below disabled.
- * We think that thoes parts aren't related to HDMI feature,
- * so those parts enable for BT SCO AUX PCM.
-*/
-#ifdef BRCM_BT_SCO_AUX_PCM
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-04-15 CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO, depends on CONFIG_FB_MSM_HDMI_MSM_PANEL. [END]
+
+#ifdef CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO
 	ret = gpio_request(GPIO_AUX_PCM_DOUT, "AUX PCM DOUT");
 	if (ret < 0) {
 		pr_err("%s: Failed to request gpio(%d): AUX PCM DOUT",
@@ -1951,9 +1697,8 @@ static int msm_aux_pcm_get_gpios(void)
 	}
 #endif
 	return 0;
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-04-15 enable BT SCO AUX PCM [START]
-#ifdef BRCM_BT_SCO_AUX_PCM
-//[AUDIO_BSP][L05E] gooyeon.jung@lge.com 2013-04-15 CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO depends on CONFIG_FB_MSM_HDMI_MSM_PANEL. [END]
+
+#ifdef CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO
 fail_clk:
 	gpio_free(GPIO_AUX_PCM_SYNC);
 fail_sync:
@@ -2250,18 +1995,20 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_name = "snd-soc-dummy",
 	},
 	{
-		.name = "VoLTE Stub",
-		.stream_name = "VoLTE Stub",
-		.cpu_dai_name   = "VOLTE_STUB",
-		.platform_name  = "msm-pcm-hostless",
+		.name = "VoLTE",
+		.stream_name = "VoLTE",
+		.cpu_dai_name   = "VoLTE",
+		.platform_name  = "msm-pcm-voice",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			    SND_SOC_DPCM_TRIGGER_POST},
+				SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
+		/* this dainlink has playback support */
 		.ignore_pmdown_time = 1,
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
+		.be_id = MSM_FRONTEND_DAI_VOLTE,
 	},
 	{
 		.name = "MSM8960 LowLatency",
@@ -2277,21 +2024,6 @@ static struct snd_soc_dai_link msm_dai[] = {
 		/* this dainlink has playback support */
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA5,
-	},
-	{
-		.name = "Voice2 Stub",
-		.stream_name = "Voice2 Stub",
-		.cpu_dai_name = "VOICE2_STUB",
-		.platform_name = "msm-pcm-hostless",
-		.dynamic = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			    SND_SOC_DPCM_TRIGGER_POST},
-		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
-		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1,
-		/* this dainlink has playback support */
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.codec_name = "snd-soc-dummy",
 	},
 	/* Backend DAI Links */
 	{
@@ -2466,7 +2198,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "msm-stub-rx",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_1_RX,
-		.be_hw_params_fixup = msm_slim_1_rx_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_btsco_be_hw_params_fixup,
 		.ops = &msm_slimbus_1_be_ops,
 		.ignore_pmdown_time = 1, /* this dainlink has playback support */
 
@@ -2480,7 +2212,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "msm-stub-tx",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_1_TX,
-		.be_hw_params_fixup =  msm_slim_1_tx_be_hw_params_fixup,
+		.be_hw_params_fixup =  msm_btsco_be_hw_params_fixup,
 		.ops = &msm_slimbus_1_be_ops,
 	},
 	/* Ultrasound TX Back End DAI Link */
@@ -2517,7 +2249,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "msm-stub-rx",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_4_RX,
-		.be_hw_params_fixup = msm_slim_4_rx_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_slimbus_4_be_ops,
 		.ignore_pmdown_time = 1, /* this dainlink has playback support */
 	},
@@ -2623,16 +2355,15 @@ static int __init msm_audio_init(void)
 		kfree(mbhc_cfg.calibration);
 		return ret;
 	}
-#if defined( CONFIG_ANDROID_SW_IRRC) && defined(CONFIG_MACH_APQ8064_AWIFI)
+#ifdef CONFIG_ANDROID_IRRC
 	INIT_DELAYED_WORK(&mute_check_work, spk_unmute_timer_function);
 #endif
 	mutex_init(&cdc_mclk_mutex);
-//LGE_CHANGE_S 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
-#if defined( CONFIG_ANDROID_SW_IRRC) && defined(CONFIG_MACH_APQ8064_AWIFI)
+#ifdef CONFIG_ANDROID_IRRC
 	mutex_init(&cdc_mute_mutex);
 #endif
-//LGE_CHANGE_E 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
 	atomic_set(&auxpcm_rsc_ref, 0);
+
 	return ret;
 
 }
@@ -2649,11 +2380,9 @@ static void __exit msm_audio_exit(void)
 		gpio_free(mbhc_cfg.gpio);
 	kfree(mbhc_cfg.calibration);
 	mutex_destroy(&cdc_mclk_mutex);
-//LGE_CHANGE_S 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
-#if defined( CONFIG_ANDROID_SW_IRRC) && defined(CONFIG_MACH_APQ8064_AWIFI)
+#ifdef CONFIG_ANDROID_IRRC
 	mutex_destroy(&cdc_mute_mutex);
 #endif
-//LGE_CHANGE_E 20130528 keunhui.park [SWIrRC] Prevent noise at pressing IrRC Buttons
 }
 module_exit(msm_audio_exit);
 

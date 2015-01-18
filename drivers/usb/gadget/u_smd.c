@@ -72,7 +72,6 @@ struct gsmd_port {
 
 	struct smd_port_info	*pi;
 	struct delayed_work	connect_work;
-	struct work_struct	disconnect_work;
 
 	/* At present, smd does not notify
 	 * control bit change info from modem
@@ -590,20 +589,6 @@ static void gsmd_connect_work(struct work_struct *w)
 	}
 }
 
-static void gsmd_disconnect_work(struct work_struct *w)
-{
-	struct gsmd_port *port;
-	struct smd_port_info *pi;
-
-	port = container_of(w, struct gsmd_port, disconnect_work);
-	pi = port->pi;
-
-	pr_debug("%s: port:%p port#%d\n", __func__, port, port->port_num);
-
-	smd_close(port->pi->ch);
-	port->pi->ch = NULL;
-}
-
 static void gsmd_notify_modem(void *gptr, u8 portno, int ctrl_bits)
 {
 	struct gsmd_port *port;
@@ -746,8 +731,10 @@ void gsmd_disconnect(struct gserial *gser, u8 portno)
 				~port->cbits_to_modem);
 	}
 
-	if (port->pi->ch)
-		queue_work(gsmd_wq, &port->disconnect_work);
+	if (port->pi->ch) {
+		smd_close(port->pi->ch);
+		port->pi->ch = NULL;
+	}
 }
 
 #define SMD_CH_MAX_LEN	20
@@ -832,7 +819,6 @@ static int gsmd_port_alloc(int portno, struct usb_cdc_line_coding *coding)
 	INIT_WORK(&port->pull, gsmd_tx_pull);
 
 	INIT_DELAYED_WORK(&port->connect_work, gsmd_connect_work);
-	INIT_WORK(&port->disconnect_work, gsmd_disconnect_work);
 
 	smd_ports[portno].port = port;
 	pdrv = &smd_ports[portno].pdrv;

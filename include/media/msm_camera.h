@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2009-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -570,7 +570,7 @@ struct msm_camera_cfg_cmd {
 #define CMD_AXI_STOP   0xE2
 #define CMD_AXI_RESET  0xE3
 #define CMD_AXI_ABORT  0xE4
-
+#define CMD_AXI_STOP_RECOVERY 0xE5 /*                                                                                                 */
 
 
 #define AXI_CMD_PREVIEW      BIT(0)
@@ -1018,28 +1018,8 @@ struct msm_snapshot_pp_status {
 #define CFG_SET_VISION_MODE           55
 #define CFG_SET_VISION_AE             56
 #define CFG_HDR_UPDATE                57
-/* LGE_CHANGE_S, Added For CE1702 For GK/GV, 2012.10.22, jungki.kim[Start] */
-#define CFG_SET_AF_MODE               58     //AF Mode Settings for CE1702 by jungki.kim
-#define CFG_SET_MANUAL_FOCUS_LENGTH   59     //Support Manual Focus by jungki.kim
-#define CFG_SET_LED_FLASH_MODE        60     //Support LED Flash only for CE1702 by jungki.kim
-#define CFG_SET_ANTIBANDING_CE1702    61     //Set Antibanding for CE1702 by jungki.kim
-#define CFG_SET_STOP_AF               62     //Stop AF for CE1702 by jungki.kim
-#define CFG_SET_AF_WINDOW             63     //Set AF Window for CE1702 by jungki.kim
-#define CFG_SET_AE_WINDOW             64     //Set AE Window for CE1702 by jungki.kim
-#define CFG_SET_OBJECT_TRACKING       65     //add the object tracking method for GK project, 2012.10.19 youngil.yun@lge.com
-#define CFG_SET_AEC_AWB_LOCK_CE1702   66     //Support AEC/AWB Lock for CE1702 by jungki.kim
-#define CFG_SET_DIM_INFO              67     //add the CFG parameter for GK project, 2012.10.19 youngil.yun@lge.com
-#define CFG_GET_CAM_OPEN_MODE         68     //Get Current Previewing Mode by jungki.kim@lge.com
-#define CFG_SET_MANUAL_SCENE_MODE     69     //Support ManualSceneMode for CE1702 by gayoung85.lee
-#define CFG_SET_GYRO_DATA             70     //Set Gyro Data For GK/GV by junghee.eim@lge.com
-#define CFG_SET_WDR                   71     //Support WDR for CE1702 by gayoung85.lee
-#define CFG_SET_EXIF_ROTATION         72     //Insert Rotation Information In EXIF by jungki.kim@lge.com
-#define CFG_SET_EXIF_GPS              73     //Set GPS Exif Tags For GK/GV by jungki.kim@lge.com
-#define CFG_SET_ASD                   74     //Supprort ASD for CE1702 by gayoung85.lee
-#define CFG_SET_EXIF_THUMBNAIL_SIZE   75     // fixed cts failure!, 2013.01.07 junghee.eim@lge.com
-#define CFG_MOVE_FOCUS_MANUAL         76     // LGE_CHANGE, Manual focus for A-pjt, 2013-07-16, seungmin.hong@lge.com
-#define CFG_MAX                       77
-/* LGE_CHANGE_E, Added For CE1702 For GK/GV, 2012.10.22, jungki.kim[End] */
+#define CFG_MAX			58
+
 #define MOVE_NEAR	0
 #define MOVE_FAR	1
 
@@ -1088,7 +1068,6 @@ struct msm_snapshot_pp_status {
 #define CAMERA_BRIGHTNESS_LV7			7
 #define CAMERA_BRIGHTNESS_LV8			8
 
-
 #define CAMERA_SATURATION_LV0			0
 #define CAMERA_SATURATION_LV1			1
 #define CAMERA_SATURATION_LV2			2
@@ -1114,7 +1093,7 @@ struct msm_snapshot_pp_status {
 #define CAMERA_SETAE_AVERAGE		0
 #define CAMERA_SETAE_CENWEIGHT	1
 
-#define  CAMERA_WB_AUTO               1 /* This list must match aeecamera.h */
+#define  CAMERA_WB_AUTO               1	/* This list must match aeecamera.h */
 #define  CAMERA_WB_CUSTOM             2
 #define  CAMERA_WB_INCANDESCENT       3
 #define  CAMERA_WB_FLUORESCENT        4
@@ -1330,26 +1309,17 @@ struct sensor_calib_data {
 };
 //End :randy@qualcomm.com for calibration 2012.04.15
 
-enum msm_sensor_resolution_t {
-	MSM_SENSOR_RES_FULL,
-	MSM_SENSOR_RES_QTR,
-	MSM_SENSOR_RES_2,
-	MSM_SENSOR_RES_3,
-	MSM_SENSOR_RES_4,
-	MSM_SENSOR_RES_5,
-	MSM_SENSOR_RES_6,
-/* LGE_CHANGE_E, Define For CE1702 output mode, 2012.11.10, elin.lee*/
-	MSM_SENSOR_RES_7,
-	MSM_SENSOR_RES_8,
-	MSM_SENSOR_RES_9,
-	MSM_SENSOR_RES_10,
-	MSM_SENSOR_RES_ZSL,//SENSOR_MODE_ZSL
-	MSM_SENSOR_RES_BURST,//SENSOR_MODE_BURSTSHOT
-	MSM_SENSOR_RES_HDR,//SENSOR_MODE_HDR
-	MSM_SENSOR_RES_LLS,//SENSOR_MODE_LOW_LIGHT_SHOT
-	MSM_SENSOR_RES_YUV_PREVIEW, //SENSOR_MODE_LOW_LIGHT_SHOT
-/* LGE_CHANGE_E, Define For CE1702 output mode, 2012.11.10, elin.lee*/	
-	MSM_SENSOR_INVALID_RES,
+enum msm_sensor_resolution_t
+{
+  MSM_SENSOR_RES_FULL,
+  MSM_SENSOR_RES_QTR,
+  MSM_SENSOR_RES_2,
+  MSM_SENSOR_RES_3,
+  MSM_SENSOR_RES_4,
+  MSM_SENSOR_RES_5,
+  MSM_SENSOR_RES_6,
+  MSM_SENSOR_RES_7,
+  MSM_SENSOR_INVALID_RES,
 };
 
 struct msm_sensor_output_info_t {
@@ -1680,49 +1650,11 @@ struct msm_cam_clk_setting {
 	uint16_t num_clk_info;
 	uint8_t enable;
 };
-
-/* LGE_CHANGE_S, add the object tracking method for GK project, 2012.10.19 youngil.yun@lge.com */
-struct rec_t {
-  uint16_t x;
-  uint16_t y;
-  uint16_t dx;
-  uint16_t dy;
-  uint16_t mode;
-};
-/* LGE_CHANGE_E, add the object tracking method for GK project, 2012.10.19 youngil.yun@lge.com */
-
-/* LGE_CHANGE_S, Set GPS Exif Tags For GK/GV, 2012.11.7, jungki.kim[Start] */
-struct k_exif_gps_t {
-	uint32_t altitude;
-	char altiRef;
-	char latRef;
-	char lonRef;
-	uint32_t gpsTimeStamp[3];
-	uint32_t latitude[3];
-	uint32_t longitude[3];
-	uint32_t gpsDateStamp[3];
-	char gpsProcessingMethod[109];
-};
-/* LGE_CHANGE_E, Set GPS Exif Tags For GK/GV, 2012.11.7, jungki.kim[End] */
-
-/* LGE_CHANGE_S, add the changing image size for GK project, 2012.10.19 youngil.yun@lge.com */
-struct dimen_t {
-  uint16_t preview_width;
-  uint16_t preview_height;
-  uint16_t picture_width;
-  uint16_t picture_height;
-  uint16_t video_width;
-  uint16_t video_height;
-  uint16_t thumbnail_width;
-  uint16_t thumbnail_heigh;
-};
-/* LGE_CHANGE_E, add the changing image size for GK project, 2012.10.19 youngil.yun@lge.com */
-
 struct sensor_cfg_data {
-	int cfgtype;
-	int mode;
-	int rs;
-	uint8_t max_steps;
+  int cfgtype;
+  int mode;
+  int rs;
+  uint8_t max_steps;
 
 	union {
 		int8_t effect;
@@ -1762,27 +1694,7 @@ struct sensor_cfg_data {
 		void *setting;
 		int32_t vision_mode_enable;
 		int32_t vision_ae;
-/* LGE_CHANGE_S, Added For CE1702 For GK/GV, 2012.10.22, jungki.kim[Start] */
-		int32_t afmode;			//AF Mode Settings for CE1702 by jungki.kim
-		int32_t zoom;				//Zoom Ratio Settings for CE1702 by jungki.kim
-		int32_t focus_length;		//Support Manual Focus by jungki.kim
-		int32_t flash_mode;		//Support LED Flash only for CE1702 by jungki.kim
-		int16_t af_window[4];		//Set AF Window for CE1702 by jungki.kim
-		int16_t ae_window[4];		//Set AE Window for CE1702 by jungki.kim
-		uint32_t curr_mode;		//Check Current Mode for CE1702 by jungki.kim
-		struct rec_t rect_info;		//add the object tracking method for GK project, 2012.10.19 youngil.yun@lge.com
-		int32_t aec_awb_lock;		//Support AEC/AWB Lock by jungki.kim
-		struct dimen_t dimension;	//add the cfg info struct for GK project, 2012.10.19 youngil.yun@lge.com
-		int32_t cam_op_mode;		//Get Current Previewing Mode by jungki.kim@lge.com
-		int32_t scene_mode;		//Support ManualSceneMode for CE1702 by gayoung85.lee
-		char model_name[20];		//Send Basic EXIF Tags To CE1702 Sensor by jungki.kim@lge.com
-		int32_t wdr_mode;			//Support the WDR for GK project by gayoung85.lee
-		int rotation;				//Insert Rotation Information In EXIF by jungki.kim@lge.com
-		struct k_exif_gps_t gps;		//Set GPS Exif Tags For GK/GV by jungki.kim@lge.com
-		int32_t asd_onoff;	//Support ASD for CE1702 by gayoung85.lee
-/* LGE_CHANGE_E, Added For CE1702 For GK/GV, 2012.10.22, jungki.kim[End] */
-
-	} cfg;
+  } cfg;
 };
 
 enum gpio_operation_type {
@@ -1853,9 +1765,9 @@ struct msm_actuator_move_params_t {
 	int8_t sign_dir;
 	int16_t dest_step_pos;
 	int32_t num_steps;
-/* LGE_CHANGE_S, AF offset enable, 2012-09-28, sungmin.woo@lge.com */
+/*                                                                 */
 	int32_t af_status;
-/* LGE_CHANGE_E, AF offset enable, 2012-09-28, sungmin.woo@lge.com */
+/*                                                                 */
 	struct damping_params_t *ringing_params;
 };
 
@@ -1935,7 +1847,7 @@ struct msm_calib_wb {
 	uint16_t gr_over_gb;
 };
 
-#if 1 // LGE_BSP_CAMERA::kyounghoon.noh@lge.com 2012-08-14
+#if 1 //                                                  
 struct msm_calib_ver {
 	uint16_t cal_ver; // rafal47 0813
 };
@@ -1997,7 +1909,7 @@ struct msm_camera_eeprom_info_t {
 	struct msm_eeprom_support lsc50;
 	struct msm_eeprom_support lsc40;
 	struct msm_eeprom_support dpc;
-	struct msm_eeprom_support cal_ver; // Start LGE_BSP_CAMERA::kyounghoon.noh@lge.com 2012-08-14
+	struct msm_eeprom_support cal_ver; //                                                        
 	struct msm_eeprom_support raw;
 };
 #endif

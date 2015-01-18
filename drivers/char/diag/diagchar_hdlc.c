@@ -173,13 +173,10 @@ int diag_hdlc_decode(struct diag_hdlc_decode_type *hdlc)
 	uint8_t src_byte;
 
 	int pkt_bnd = 0;
-	int msg_start;
 
 	if (hdlc && hdlc->src_ptr && hdlc->dest_ptr &&
 	    (hdlc->src_size - hdlc->src_idx > 0) &&
 	    (hdlc->dest_size - hdlc->dest_idx > 0)) {
-
-		msg_start = (hdlc->src_idx == 0) ? 1 : 0;
 
 		src_ptr = hdlc->src_ptr;
 		src_ptr = &src_ptr[hdlc->src_idx];
@@ -206,20 +203,9 @@ int diag_hdlc_decode(struct diag_hdlc_decode_type *hdlc)
 							  ^ ESC_MASK;
 				}
 			} else if (src_byte == CONTROL_CHAR) {
-				if(len == 0){
-					continue;
-				}
 				dest_ptr[len++] = src_byte;
-				/*
-				 * If this is the first byte in the message,
-				 * then it is part of the command. Otherwise,
-				 * consider it as the last byte of the
-				 * message.
-				 */
-				if (msg_start && i == 0 && src_length > 1)
-					continue;
-				i++;
 				pkt_bnd = 1;
+				i++;
 				break;
 			} else {
 				dest_ptr[len++] = src_byte;

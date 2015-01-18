@@ -104,7 +104,7 @@ enum pm8xxx_adc_channels {
 #define PM8XXX_CHANNEL_MPP_SCALE1_IDX	20
 #define PM8XXX_CHANNEL_MPP_SCALE3_IDX	40
 
-#define PM8XXX_AMUX_MPP_1   0x1
+#define PM8XXX_AMUX_MPP_1	0x1
 #define PM8XXX_AMUX_MPP_3	0x3
 #define PM8XXX_AMUX_MPP_4	0x4
 #define PM8XXX_AMUX_MPP_5	0x5
@@ -112,10 +112,7 @@ enum pm8xxx_adc_channels {
 #define PM8XXX_AMUX_MPP_7	0x7
 #define PM8XXX_AMUX_MPP_8	0x8
 
-#ifdef CONFIG_LGE_PM
 #define PM8XXX_AMUX_MPP_12	0xC
-#endif
-
 #define PM8XXX_ADC_DEV_NAME	"pm8xxx-adc"
 
 /**
@@ -213,7 +210,6 @@ enum pm8xxx_adc_premux_mpp_scale_type {
  * %ADC_SCALE_PMIC_THERM: Returns result in milli degree's Centigrade
  * %ADC_SCALE_XTERN_CHGR_CUR: Returns current across 0.1 ohm resistor
  * %ADC_SCALE_XOTHERM: Returns XO thermistor voltage in degree's Centigrade
- * %ADC_SCALE_APQ_THERM: Returns result in milli degree's Centigrade
  * %ADC_SCALE_NONE: Do not use this scaling type
  */
 enum pm8xxx_adc_scale_fn_type {
@@ -222,7 +218,9 @@ enum pm8xxx_adc_scale_fn_type {
 	ADC_SCALE_PA_THERM,
 	ADC_SCALE_PMIC_THERM,
 	ADC_SCALE_XOTHERM,
+#ifdef CONFIG_MACH_APQ8064_PALMAN
 	ADC_SCALE_APQ_THERM,
+#endif
 	ADC_SCALE_NONE,
 };
 
@@ -252,6 +250,16 @@ struct pm8xxx_adc_linear_graph {
 struct pm8xxx_adc_map_pt {
 	int32_t x;
 	int32_t y;
+};
+
+/**
+ * struct pm8xxx_adc_map - container of pm8xxx_adc_map_pt
+ * @pt: pointer of pm8xxx_adc_map_pt
+ * @size: size of pm8xxx_adc_map_pt
+ */
+struct pm8xxx_adc_map {
+	struct pm8xxx_adc_map_pt *pt;
+	int size;
 };
 
 /**
@@ -310,10 +318,6 @@ struct pm8xxx_adc_chan_result {
 	int32_t		adc_code;
 	int64_t		measurement;
 	int64_t		physical;
-#ifdef CONFIG_LGE_CHARGER_TEMP_SCENARIO
-/* battery of therm H/W register level reading kwangjae1.lee@lge.com */
-	int64_t		adc_value;
-#endif
 };
 
 #if defined(CONFIG_SENSORS_PM8XXX_ADC)					\
@@ -379,21 +383,23 @@ int32_t pm8xxx_adc_scale_pa_therm(int32_t adc_code,
 			const struct pm8xxx_adc_properties *adc_prop,
 			const struct pm8xxx_adc_chan_properties *chan_prop,
 			struct pm8xxx_adc_chan_result *chan_rslt);
+#ifdef CONFIG_MACH_APQ8064_PALMAN
 /**
  * pm8xxx_adc_scale_apq_therm() - Scales the pre-calibrated digital output
- *		of an ADC to the ADC reference and compensates for the
- *		gain and offset. Returns the temperature in degC.
- * @adc_code:	pre-calibrated digital ouput of the ADC.
- * @adc_prop:	adc properties of the pm8xxx adc such as bit resolution,
- *		reference voltage.
- * @chan_prop:	individual channel properties to compensate the i/p scaling,
- *		slope and offset.
- * @chan_rslt:	physical result to be stored.
+ *              of an ADC to the ADC reference and compensates for the
+ *              gain and offset. Returns the temperature in degC.
+ * @adc_code:   pre-calibrated digital ouput of the ADC.
+ * @adc_prop:   adc properties of the pm8xxx adc such as bit resolution,
+ *              reference voltage.
+ * @chan_prop:  individual channel properties to compensate the i/p scaling,
+ *              slope and offset.
+ * @chan_rslt:  physical result to be stored.
  */
 int32_t pm8xxx_adc_scale_apq_therm(int32_t adc_code,
 			const struct pm8xxx_adc_properties *adc_prop,
 			const struct pm8xxx_adc_chan_properties *chan_prop,
 			struct pm8xxx_adc_chan_result *chan_rslt);
+#endif
 /**
  * pm8xxx_adc_scale_pmic_therm() - Scales the pre-calibrated digital output
  *		of an ADC to the ADC reference and compensates for the
@@ -528,14 +534,15 @@ int32_t pm8xxx_adc_batt_scaler(struct pm8xxx_adc_arb_btm_param *,
  * @adc_mpp_base: PM8XXX MPP0 base passed from board file. This is used
  *		  to offset the PM8XXX MPP passed to configure the
  *		  the MPP to AMUX mapping.
- * @apq_therm: Therm check.
  */
 struct pm8xxx_adc_platform_data {
 	struct pm8xxx_adc_properties	*adc_prop;
 	struct pm8xxx_adc_amux		*adc_channel;
 	uint32_t			adc_num_board_channel;
 	uint32_t			adc_mpp_base;
+#ifdef CONFIG_MACH_APQ8064_PALMAN
 	bool				apq_therm;
+#endif
 };
 
 /* Public API */
@@ -612,6 +619,21 @@ uint32_t pm8xxx_adc_btm_end(void);
  *			events are triggered.
  */
 uint32_t pm8xxx_adc_btm_configure(struct pm8xxx_adc_arb_btm_param *);
+
+/**
+ * pm8xxx_set_adcmap_btm_threshold()
+ */
+void pm8xxx_set_adcmap_btm_threshold(void *pts, int size);
+
+/**
+ * pm8xxx_set_adcmap_pa_therm()
+ */
+void pm8xxx_set_adcmap_pa_therm(void *pts, int size);
+
+/**
+ * pm8xxx_st_adcmap_ntcg_104ef_104fb()
+ */
+void pm8xxx_set_adcmap_ntcg_104ef_104fb(void *pts, int size);
 #else
 static inline uint32_t pm8xxx_adc_read(uint32_t channel,
 				struct pm8xxx_adc_chan_result *result)
@@ -627,6 +649,9 @@ static inline uint32_t pm8xxx_adc_btm_end(void)
 static inline uint32_t pm8xxx_adc_btm_configure(
 		struct pm8xxx_adc_arb_btm_param *param)
 { return -ENXIO; }
+static inline void pm8xxx_set_adcmap_btm_threshold(void) { }
+static inline void pm8xxx_set_adcmap_pa_therm(void) { }
+static inline void pm8xxx_set_adcmap_ntcg_104ef_104fb(void) { }
 #endif
 
 #endif /* PM8XXX_ADC_H */

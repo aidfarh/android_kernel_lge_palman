@@ -52,8 +52,6 @@
 #define USB_REG_START_OFFSET 0x90
 #define USB_REG_END_OFFSET 0x250
 
-//#define HSIC_DISCONNECT_DEBUG 
-
 static struct workqueue_struct  *ehci_wq;
 struct ehci_timer {
 #define GPT_LD(p)	((p) & 0x00FFFFFF)
@@ -84,9 +82,6 @@ struct msm_hsic_hcd {
 	int			peripheral_status_irq;
 	int			wakeup_irq;
 	int			wakeup_gpio;
-	int			err_fatal;
-	int			ready_gpio;
-	int			pbl_gpio;
 	bool			wakeup_irq_enabled;
 	atomic_t		pm_usage_cnt;
 	uint32_t		bus_perf_client;
@@ -108,7 +103,6 @@ struct msm_hsic_hcd {
 	struct pm_qos_request pm_qos_req_dma;
 };
 
-extern int subsystem_restart(const char *name);
 struct msm_hsic_hcd *__mehci;
 
 static bool debug_bus_voting_enabled = true;
@@ -140,31 +134,6 @@ enum event_type {
 };
 
 #define EVENT_STR_LEN	5
-
-static int in_progress;
-
-static void do_restart(struct work_struct *dummy)
-{
-	int normal_boot = 0;
-        int on_pbl = 0;
-	int err_fatal=0;
-
-	normal_boot = gpio_get_value(__mehci->ready_gpio);
-	on_pbl = gpio_get_value(__mehci->pbl_gpio);
-	err_fatal = gpio_get_value(__mehci->err_fatal);
-#ifdef HSIC_DISCONNECT_DEBUG
-	pr_info("[DEBUG] normal_boot:%d, on_pbl:%d, err_fatal:%d \n",
-		normal_boot, on_pbl, err_fatal);
-#endif
-	if(normal_boot && !on_pbl && !in_progress && !err_fatal && system_state == SYSTEM_RUNNING){
-        pr_err("%s: normal_boot(%d), on_pbl(%d), in_progress(%d), err_fatal(%d), system_state(%d)\n",
-                __func__, normal_boot, on_pbl, in_progress, err_fatal, system_state);
-		in_progress = 1;
-		subsystem_restart("external_modem");
-	}
-
-}
-DECLARE_DELAYED_WORK(restart_work,do_restart);
 
 static enum event_type str_to_event(const char *name)
 {
@@ -219,11 +188,11 @@ static char *get_timestamp(char *tbuf)
 	return tbuf;
 }
 
-static int allow_dbg_log(struct urb *urb, int ep_addr)
+static int allow_dbg_log(int ep_addr)
 {
 	int dir, num;
 
-	dir = usb_urb_dir_in(urb) ? USB_DIR_IN : USB_DIR_OUT;
+	dir = ep_addr & USB_DIR_IN ? USB_DIR_IN : USB_DIR_OUT;
 	num = ep_addr & ~USB_DIR_IN;
 	num = 1 << num;
 
@@ -235,9 +204,9 @@ static int allow_dbg_log(struct urb *urb, int ep_addr)
 	return 0;
 }
 
-static char *
-get_hex_data(char *dbuf, struct urb *urb, int event, int status, size_t max_len)
+static char *get_hex_data(char *dbuf, struct urb *urb, int event, int status)
 {
+	int ep_addr = urb->ep->desc.bEndpointAddress;
 	char *ubuf = urb->transfer_buffer;
 	size_t len = event ? \
 		urb->actual_length : urb->transfer_buffer_length;
@@ -245,11 +214,12 @@ get_hex_data(char *dbuf, struct urb *urb, int event, int status, size_t max_len)
 	if (status == -EINPROGRESS)
 		status = 0;
 
-	/*Only dump ep in successful completions and epout submissions*/
-	if (len && !status && ((usb_urb_dir_in(urb) && event) ||
-			(usb_urb_dir_out(urb) && !event))) {
-		if (len >= max_len)
-			len = max_len;
+	/*Only dump ep in completions and epout submissions*/
+	if (len && !status &&
+		(((ep_addr & USB_DIR_IN) && event) ||
+		(!(ep_addr & USB_DIR_IN) && !event))) {
+		if (len >= 32)
+			len = 32;
 		hex_dump_to_buffer(ubuf, len, 32, 4, dbuf, HEX_DUMP_LEN, 0);
 	} else {
 		dbuf = "";
@@ -278,7 +248,7 @@ static void dbg_log_event(struct urb *urb, char * event, unsigned extra)
 	}
 
 	ep_addr = urb->ep->desc.bEndpointAddress;
-	if (!allow_dbg_log(urb, ep_addr))
+	if (!allow_dbg_log(ep_addr))
 		return;
 
 	if ((ep_addr & 0x0f) == 0x0) {
@@ -287,9 +257,9 @@ static void dbg_log_event(struct urb *urb, char * event, unsigned extra)
 			write_lock_irqsave(&dbg_hsic_ctrl.lck, flags);
 			scnprintf(dbg_hsic_ctrl.buf[dbg_hsic_ctrl.idx],
 				DBG_MSG_LEN, "%s: [%s : %p]:[%s] "
-				  "%02x %02x %04x %04x %04x  %u %d %s",
+				  "%02x %02x %04x %04x %04x  %u %d",
 				  get_timestamp(tbuf), event, urb,
-				  usb_urb_dir_in(urb) ? "in" : "out",
+				  (ep_addr & USB_DIR_IN) ? "in" : "out",
 				  urb->setup_packet[0], urb->setup_packet[1],
 				  (urb->setup_packet[3] << 8) |
 				  urb->setup_packet[2],
@@ -297,21 +267,17 @@ static void dbg_log_event(struct urb *urb, char * event, unsigned extra)
 				  urb->setup_packet[4],
 				  (urb->setup_packet[7] << 8) |
 				  urb->setup_packet[6],
-				  urb->transfer_buffer_length, extra,
-				  enable_payload_log ? get_hex_data(dbuf, urb,
-				  str_to_event(event), extra, 16) : "");
+				  urb->transfer_buffer_length, extra);
 
 			dbg_inc(&dbg_hsic_ctrl.idx);
 			write_unlock_irqrestore(&dbg_hsic_ctrl.lck, flags);
 		} else {
 			write_lock_irqsave(&dbg_hsic_ctrl.lck, flags);
 			scnprintf(dbg_hsic_ctrl.buf[dbg_hsic_ctrl.idx],
-				DBG_MSG_LEN, "%s: [%s : %p]:[%s] %u %d %s",
+				DBG_MSG_LEN, "%s: [%s : %p]:[%s] %u %d",
 				  get_timestamp(tbuf), event, urb,
-				  usb_urb_dir_in(urb) ? "in" : "out",
-				  urb->actual_length, extra,
-				  enable_payload_log ? get_hex_data(dbuf, urb,
-				  str_to_event(event), extra, 16) : "");
+				  (ep_addr & USB_DIR_IN) ? "in" : "out",
+				  urb->actual_length, extra);
 
 			dbg_inc(&dbg_hsic_ctrl.idx);
 			write_unlock_irqrestore(&dbg_hsic_ctrl.lck, flags);
@@ -321,11 +287,11 @@ static void dbg_log_event(struct urb *urb, char * event, unsigned extra)
 		scnprintf(dbg_hsic_data.buf[dbg_hsic_data.idx], DBG_MSG_LEN,
 			  "%s: [%s : %p]:ep%d[%s]  %u %d %s",
 			  get_timestamp(tbuf), event, urb, ep_addr & 0x0f,
-			  usb_urb_dir_in(urb) ? "in" : "out",
+			  (ep_addr & USB_DIR_IN) ? "in" : "out",
 			  str_to_event(event) ? urb->actual_length :
 			  urb->transfer_buffer_length, extra,
 			  enable_payload_log ? get_hex_data(dbuf, urb,
-				  str_to_event(event), extra, 32) : "");
+				  str_to_event(event), extra) : "");
 
 		dbg_inc(&dbg_hsic_data.idx);
 		write_unlock_irqrestore(&dbg_hsic_data.lck, flags);
@@ -459,7 +425,6 @@ static int __maybe_unused ulpi_read(struct msm_hsic_hcd *mehci, u32 reg)
 		udelay(130);
 		dev_err(mehci->dev, "ulpi_read: FRINDEX: %08x\n",
 				readl_relaxed(USB_FRINDEX));
-		schedule_delayed_work(&restart_work,0);
 		return -ETIMEDOUT;
 	}
 
@@ -552,38 +517,6 @@ free_strobe:
 	gpio_free(pdata->strobe);
 
 	return rc;
-}
-static int usbdev_notify(struct notifier_block *self,
-			unsigned long action, void *priv)
-{
-	struct usb_device *udev = priv;
-	struct usb_hcd *hcd;
-
-	if(!__mehci)
-		goto out;
-	hcd = hsic_to_hcd(__mehci);
-	if(&hcd->self != udev->bus)
-		goto out;
-
-	if (action == USB_BUS_ADD || action == USB_BUS_REMOVE || action == USB_DEVICE_CONFIG)
-		goto out;
-
-	if (!udev->parent || udev->parent->parent)
-		goto out;
-
-	switch (action) {
-		case USB_DEVICE_ADD:
-			in_progress = 0;
-			break;
-		/* fall through */
-		case USB_DEVICE_REMOVE:
-			schedule_delayed_work(&restart_work,0);
-			break;
-		default:
-			break;
-	}
-out:
-	return NOTIFY_OK;
 }
 
 static void msm_hsic_clk_reset(struct msm_hsic_hcd *mehci)
@@ -776,31 +709,10 @@ static int msm_hsic_suspend(struct msm_hsic_hcd *mehci)
 
 	wake_unlock(&mehci->wlock);
 
-	dev_info(mehci->dev, "HSIC-USB in low power mode\n");
+	dev_dbg(mehci->dev, "HSIC-USB in low power mode\n");
 
 	return 0;
 }
-
-#ifdef HSIC_DISCONNECT_DEBUG
-int jk = 0;
-static void force_crash(void)
-{
-	struct msm_hsic_hcd *mehci = __mehci;
-	struct usb_hcd *hcd = hsic_to_hcd(mehci);
-	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
-
-	if (atomic_read(&mehci->in_lpm)) {
-		printk( "%s called in !in_lpm\n", __func__);
-	}
-	disable_irq(hcd->irq);
-	ehci_halt(ehci);
-	pr_info("[DEBUG] Force reset\n");
-	msm_hsic_config_gpios(mehci, 0);
-	msm_hsic_reset(mehci);
-	enable_irq(hcd->irq);
-	jk = 0;
-}
-#endif
 
 static int msm_hsic_resume(struct msm_hsic_hcd *mehci)
 {
@@ -891,17 +803,8 @@ skip_phy_resume:
 		pm_runtime_put_noidle(mehci->dev);
 	}
 
-        enable_irq(hcd->irq);
-	dev_info(mehci->dev, "HSIC-USB exited from low power mode\n");
-
-#ifdef HSIC_DISCONNECT_DEBUG
-	jk++;
-	if(jk == 10)
-	{
-		pr_info("[DEBUG] call force_crash!!\n");
-		force_crash();
-	}
-#endif
+	enable_irq(hcd->irq);
+	dev_dbg(mehci->dev, "HSIC-USB exited from low power mode\n");
 
 	return 0;
 }
@@ -1161,15 +1064,11 @@ static int msm_hsic_resume_thread(void *data)
 	int			retry_cnt = 0;
 	int			tight_resume = 0;
 	struct msm_hsic_host_platform_data *pdata = mehci->dev->platform_data;
-	ktime_t now;
-	s64 mdiff;
 
 	dbg_log_event(NULL, "Resume RH", 0);
 
 	/* keep delay between bus states */
-	now = ktime_get();
-	mdiff = ktime_to_us(ktime_sub(now, ehci->last_susp_resume));
-	if (mdiff < 10000)
+	if (time_before(jiffies, ehci->next_statechange))
 		usleep_range(5000, 5000);
 
 	spin_lock_irq(&ehci->lock);
@@ -1347,10 +1246,6 @@ static int ehci_hsic_bus_resume(struct usb_hcd *hcd)
 	return 0;
 }
 
-static struct notifier_block usbdev_nb = {
-	.notifier_call =	usbdev_notify,
-};
-
 static struct hc_driver msm_hsic_driver = {
 	.description		= hcd_name,
 	.product_desc		= "Qualcomm EHCI Host Controller using HSIC",
@@ -1523,6 +1418,11 @@ static irqreturn_t msm_hsic_wakeup_irq(int irq, void *data)
 			pm_runtime_put_noidle(mehci->dev);
 		else
 			atomic_set(&mehci->pm_usage_cnt, 1);
+	}
+
+	if (!atomic_read(&mehci->pm_usage_cnt)) {
+		atomic_set(&mehci->pm_usage_cnt, 1);
+		pm_runtime_get(mehci->dev);
 	}
 
 	return IRQ_HANDLED;
@@ -1799,25 +1699,6 @@ static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 		dev_dbg(mehci->dev, "wakeup_irq: %d\n", mehci->wakeup_irq);
 	}
 
-	res = platform_get_resource_byname(pdev,
-			IORESOURCE_IO, "MDM2AP_PBLRDY");
-	if (res) {
-	    dev_dbg(mehci->dev, "pblrdy: %d\n", res->start);
-	    mehci->pbl_gpio = res->start;
-	}
-
-	res = platform_get_resource_byname(pdev,
-			IORESOURCE_IO, "AP2MDM_HSICRDY");
-	if (res) {
-		dev_dbg(mehci->dev, "AP2MDM_HSICRDY: %d\n", res->start);
-		mehci->ready_gpio = res->start;
-	}
-	res = platform_get_resource_byname(pdev,
-			IORESOURCE_IO, "MDM2AP_ERRFATAL");
-	if (res) {
-		dev_dbg(mehci->dev, "MDM2AP_ERRFATAL: %d\n", res->start);
-		mehci->err_fatal = res->start;
-	}
 	ret = msm_hsic_init_clocks(mehci, 1);
 	if (ret) {
 		dev_err(&pdev->dev, "unable to initialize clocks\n");
@@ -1848,7 +1729,7 @@ static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 	}
 
 	INIT_WORK(&mehci->bus_vote_w, ehci_hsic_bus_vote_w);
-	usb_register_notify(&usbdev_nb);
+
 	ret = usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
 	if (ret) {
 		dev_err(&pdev->dev, "unable to register HCD\n");
@@ -1981,7 +1862,6 @@ static int __devexit ehci_hsic_msm_remove(struct platform_device *pdev)
 
 	destroy_workqueue(ehci_wq);
 
-	usb_unregister_notify(&usbdev_nb);
 	msm_hsic_config_gpios(mehci, 0);
 	msm_hsic_init_vddcx(mehci, 0);
 

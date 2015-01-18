@@ -129,7 +129,6 @@ struct wcd9xxx {
 	struct mutex io_lock;
 	struct mutex xfer_lock;
 	struct mutex irq_lock;
-	struct mutex nested_irq_lock;
 	u8 version;
 
 	unsigned int irq_base;
@@ -178,8 +177,6 @@ int wcd9xxx_get_intf_type(void);
 
 bool wcd9xxx_lock_sleep(struct wcd9xxx *wcd9xxx);
 void wcd9xxx_unlock_sleep(struct wcd9xxx *wcd9xxx);
-void wcd9xxx_nested_irq_lock(struct wcd9xxx *wcd9xxx);
-void wcd9xxx_nested_irq_unlock(struct wcd9xxx *wcd9xxx);
 enum wcd9xxx_pm_state wcd9xxx_pm_cmpxchg(struct wcd9xxx *wcd9xxx,
 				enum wcd9xxx_pm_state o,
 				enum wcd9xxx_pm_state n);
