@@ -947,7 +947,7 @@ u32 vid_enc_set_get_entropy_cfg(struct video_client_ctx *client_ctx,
 			break;
 		}
 
-		if (status && entropy_cfg->cabacmodel ==
+		if (status && entropy_cfg->entropysel ==
 				VCD_ENTROPY_SEL_CABAC) {
 			switch (entropy_cfg->cabacmodel) {
 			case VEN_CABAC_MODEL_0:
